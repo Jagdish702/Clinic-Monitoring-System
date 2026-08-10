@@ -1,0 +1,12 @@
+.env
+clinics.json
+__pycache__/
+*.py[cod]
+*.pt
+logs/
+screenshots/*
+!screenshots/.gitkeep
+storage/*.db
+storage/*.db-wal
+storage/*.db-shm
+.venv/

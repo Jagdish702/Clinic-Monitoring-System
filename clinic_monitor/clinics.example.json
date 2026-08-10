@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to clinics.json and edit. All regions are fractions (0-1) of the phone screen: [x, y, width, height]. Run tools/preview_layout.py to calibrate.",
+  "clinics": [
+    {
+      "name": "Clinic A",
+      "adb_serial": "emulator-5554",
+      "backend": "adb",
+      "video_region": [0.0, 0.12, 1.0, 0.56],
+      "grid": [2, 2],
+      "enabled": true,
+      "cameras": [
+        { "name": "Reception" },
+        { "name": "Waiting Area" },
+        { "name": "Consultation" },
+        { "name": "Entrance" }
+      ]
+    },
+    {
+      "name": "Clinic B",
+      "adb_serial": "192.168.1.44:5555",
+      "backend": "adb",
+      "grid": [1, 1],
+      "enabled": false,
+      "cameras": [
+        { "name": "Main Hall", "region": [0.0, 0.15, 1.0, 0.45] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — Alerts</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel-2:#1e242c; --line:#2a323c;
+    --text:#e6eaf0; --muted:#8b97a8;
+    --high:#ff4d4f; --medium:#ffa32e; --low:#3ecf8e; --accent:#4c8dff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);
+         border-bottom:1px solid var(--line);padding:14px 20px}
+  .bar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+  h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.2px}
+  h1 span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
+  .tiles{display:flex;gap:8px;flex-wrap:wrap}
+  .tile{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+        padding:6px 12px;font-size:12px;color:var(--muted)}
+  .tile b{display:block;font-size:17px;color:var(--text);font-weight:600}
+  .tile.high b{color:var(--high)} .tile.medium b{color:var(--medium)} .tile.low b{color:var(--low)}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .chip{border:1px solid var(--line);background:var(--panel-2);color:var(--muted);
+        padding:5px 13px;border-radius:999px;text-decoration:none;font-size:13px}
+  .chip:hover{border-color:var(--accent);color:var(--text)}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip.active.high{background:var(--high);border-color:var(--high)}
+  .chip.active.medium{background:var(--medium);border-color:var(--medium);color:#221a08}
+  .chip.active.low{background:var(--low);border-color:var(--low);color:#06251a}
+  main{padding:20px;max-width:1180px;margin:0 auto}
+  .event{display:flex;gap:16px;background:var(--panel);border:1px solid var(--line);
+         border-left-width:4px;border-radius:10px;padding:14px;margin-bottom:12px}
+  .event.high{border-left-color:var(--high)}
+  .event.medium{border-left-color:var(--medium)}
+  .event.low{border-left-color:var(--low)}
+  .shot{width:230px;min-width:230px;height:140px;border-radius:8px;object-fit:cover;
+        background:var(--panel-2);border:1px solid var(--line)}
+  .shot.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+  .body{flex:1;min-width:0}
+  .row1{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px}
+  .sev{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+       padding:3px 9px;border-radius:5px}
+  .sev.high{background:rgba(255,77,79,.15);color:var(--high)}
+  .sev.medium{background:rgba(255,163,46,.15);color:var(--medium)}
+  .sev.low{background:rgba(62,207,142,.13);color:var(--low)}
+  .where{font-weight:600}
+  .when{color:var(--muted);font-size:12px;margin-left:auto}
+  .desc{margin:2px 0 8px;font-size:15px}
+  .reason{color:var(--muted);font-size:13px;margin-bottom:8px}
+  .meta{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
+        padding:2px 8px;font-size:11px;color:var(--muted)}
+  .pill.warn{color:var(--medium);border-color:rgba(255,163,46,.4)}
+  .empty-state{text-align:center;color:var(--muted);padding:70px 20px}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:0 0 28px}
+  a{color:inherit}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Clinic Monitor <span>live alerts · newest first</span></h1>
+    <div class="tiles">
+      <div class="tile high"><b id="c-high">{{ counts.High }}</b>High</div>
+      <div class="tile medium"><b id="c-medium">{{ counts.Medium }}</b>Medium</div>
+      <div class="tile low"><b id="c-low">{{ counts.Low }}</b>Low</div>
+      <div class="tile"><b id="c-total">{{ counts.Total }}</b>Total</div>
+    </div>
+  </div>
+  <div class="filters">
+    <a class="chip {% if severity == 'all' %}active{% endif %}"
+       href="?severity=all&clinic={{ clinic }}">All</a>
+    {% for s in severities %}
+      <a class="chip {{ s|lower }} {% if severity|lower == s|lower %}active{% endif %}"
+         href="?severity={{ s }}&clinic={{ clinic }}">{{ s }}</a>
+    {% endfor %}
+    {% if clinics %}
+      <span style="width:1px;height:22px;background:var(--line);margin:0 4px"></span>
+      <a class="chip {% if clinic == 'all' %}active{% endif %}"
+         href="?severity={{ severity }}&clinic=all">All clinics</a>
+      {% for c in clinics %}
+        <a class="chip {% if clinic == c %}active{% endif %}"
+           href="?severity={{ severity }}&clinic={{ c }}">{{ c }}</a>
+      {% endfor %}
+    {% endif %}
+  </div>
+</header>
+
+<main>
+  <div id="events"></div>
+  <div id="empty" class="empty-state" hidden>
+    No alerts match these filters yet.
+  </div>
+</main>
+
+<footer>auto-refreshing every {{ refresh }}s · <span id="updated">—</span></footer>
+
+<script>
+const REFRESH_MS = {{ refresh }} * 1000;
+const params = new URLSearchParams(window.location.search);
+
+function esc(s){
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function when(ev){
+  const d = new Date(ev.ts_epoch * 1000);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  const stamp = d.toLocaleString();
+  if (diff < 60) return "just now · " + stamp;
+  if (diff < 3600) return Math.floor(diff/60) + "m ago · " + stamp;
+  if (diff < 86400) return Math.floor(diff/3600) + "h ago · " + stamp;
+  return stamp;
+}
+
+function card(ev){
+  const sev = (ev.severity || "Low").toLowerCase();
+  const shot = ev.screenshot_path
+    ? `<a href="/screenshots/${encodeURI(ev.screenshot_path)}" target="_blank">
+         <img class="shot" loading="lazy" src="/screenshots/${encodeURI(ev.screenshot_path)}" alt="evidence">
+       </a>`
+    : `<div class="shot empty">no screenshot</div>`;
+
+  const pills = [];
+  if (ev.clinic_status) pills.push(`<span class="pill">clinic: ${esc(ev.clinic_status)}</span>`);
+  if (ev.person_count)  pills.push(`<span class="pill">people: ${ev.person_count}</span>`);
+  if (ev.confidence)    pills.push(`<span class="pill">conf: ${Number(ev.confidence).toFixed(2)}</span>`);
+  if (ev.staff_present) pills.push(`<span class="pill">staff present</span>`);
+  if (ev.patient_present) pills.push(`<span class="pill">patient visible</span>`);
+  if (ev.unusual_activity) pills.push(`<span class="pill warn">unusual activity</span>`);
+  if (ev.immediate_attention) pills.push(`<span class="pill warn">needs attention</span>`);
+  if (ev.source) pills.push(`<span class="pill">via ${esc(ev.source)}</span>`);
+
+  return `<article class="event ${sev}">
+    ${shot}
+    <div class="body">
+      <div class="row1">
+        <span class="sev ${sev}">${esc(ev.severity)}</span>
+        <span class="where">${esc(ev.clinic_name)} · ${esc(ev.camera_name)}</span>
+        <span class="when">${esc(when(ev))}</span>
+      </div>
+      <p class="desc">${esc(ev.description)}</p>
+      ${ev.reason ? `<p class="reason">${esc(ev.reason)}</p>` : ""}
+      <div class="meta">${pills.join("")}</div>
+    </div>
+  </article>`;
+}
+
+async function refresh(){
+  try{
+    const res = await fetch("/api/events?" + params.toString(), {cache:"no-store"});
+    const data = await res.json();
+    const list = document.getElementById("events");
+    list.innerHTML = data.events.map(card).join("");
+    document.getElementById("empty").hidden = data.events.length > 0;
+
+    const stats = await (await fetch("/api/stats", {cache:"no-store"})).json();
+    document.getElementById("c-high").textContent   = stats.counts.High;
+    document.getElementById("c-medium").textContent = stats.counts.Medium;
+    document.getElementById("c-low").textContent    = stats.counts.Low;
+    document.getElementById("c-total").textContent  = stats.counts.Total;
+    document.getElementById("updated").textContent  =
+      "updated " + new Date().toLocaleTimeString();
+  }catch(err){
+    document.getElementById("updated").textContent = "refresh failed: " + err;
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

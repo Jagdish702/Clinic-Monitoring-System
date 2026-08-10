@@ -1,0 +1,34 @@
+# Python virtualenv - reproduce it with requirements.txt, never commit it.
+# It is ~2.5 GB of machine-specific binaries and two files in it exceed
+# GitHub's hard 100 MB per-file limit (torch/lib/dnnl.lib, torch_cpu.dll).
+.venv/
+venv/
+env/
+
+# Byte-code and caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Model weights - downloaded automatically on first run
+*.pt
+
+# Local secrets and per-deployment config
+.env
+clinic_monitor/.env
+clinic_monitor/clinics.json
+
+# Captured data: clinic footage and event history stay on the machine
+clinic_monitor/screenshots/*
+!clinic_monitor/screenshots/.gitkeep
+clinic_monitor/storage/*.db
+clinic_monitor/storage/*.db-wal
+clinic_monitor/storage/*.db-shm
+clinic_monitor/logs/
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

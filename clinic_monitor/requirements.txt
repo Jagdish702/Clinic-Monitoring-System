@@ -1,0 +1,21 @@
+# Core pipeline
+opencv-python==4.10.0.84
+numpy==1.26.4
+
+# Stage 3 - YOLOv8n (CPU wheels; no CUDA)
+ultralytics==8.3.27
+torch==2.4.1
+torchvision==0.19.1
+
+# Stage 4 - Gemini Flash vision
+# 2.x is required for thinking_budget=0, which keeps latency and truncation down
+google-genai>=2.17.0
+
+# Stage 6 - dashboard
+Flask==3.0.3
+
+# Convenience
+python-dotenv==1.0.1
+
+# Optional: only needed for the "scrcpy" capture backend
+# mss==9.0.2

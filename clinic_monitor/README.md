@@ -189,6 +189,44 @@ It understands `curebay <place>` (or a quoted `"name"`), durations like
 whole sentence is passed on as the question, so "is anyone waiting?" is
 answered directly. A misspelt clinic gets a "did you mean ...?" suggestion.
 
+## Continuous patrol across every clinic
+
+One phone can only show one clinic at a time, so covering them all means
+visiting them in turn:
+
+```
+Clinic 1 -> analyse -> Clinic 2 -> analyse -> ... -> Clinic N -> back to 1
+```
+
+```bash
+patrol.bat            60 seconds per clinic, runs until Ctrl+C
+patrol.bat 120        two minutes per clinic
+patrol.bat 90 3       90 seconds each, stop after 3 full rounds
+```
+
+Extra options pass straight through:
+
+```bash
+patrol.bat 60 0 --clinics BANAMALIPUR,NAYAHAT
+patrol.bat 60 0 --all-cameras       describe idle cameras too
+patrol.bat 60 0 --rest 300          wait 5 min between rounds
+```
+
+Behaviour worth knowing:
+
+* **Idle cameras are not sent to Gemini.** A camera with no motion and no
+  people is reported from the cheap stages instead - describing it would spend
+  an API call to be told nothing happened. `--all-cameras` overrides this.
+* **Offline clinics are skipped, not dropped.** They are retried on the next
+  round, because a device that is down now may be back later.
+* **One bad clinic never stops the patrol** - navigation, capture and
+  unexpected errors are all caught per clinic.
+* **Ctrl+C finishes the current clinic** rather than abandoning it mid-capture,
+  then prints a summary of everything above Low severity.
+
+Each clinic costs roughly `duration + 30s` (navigation), so a full lap of 13
+clinics at 60s each takes about 20 minutes. The estimate is printed at startup.
+
 ## Asking about one clinic on demand
 
 The monitoring loop only spends a Gemini call when YOLO sees a person. A

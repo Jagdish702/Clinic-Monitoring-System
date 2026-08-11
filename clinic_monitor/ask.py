@@ -89,10 +89,16 @@ def watch(
     clinic: "config.ClinicConfig",
     duration: float,
     interval: float,
+    detector: Optional[YoloDetector] = None,
 ) -> Dict[str, CameraObservation]:
-    """Run stages 1-3 over a fixed window and collect per-camera observations."""
+    """
+    Run stages 1-3 over a fixed window and collect per-camera observations.
+
+    Pass ``detector`` to reuse a loaded model - a patrol visits many clinics in
+    a row and reloading YOLO for each one is pure waste.
+    """
     reader = FrameReader(clinic, interval=interval)
-    detector = YoloDetector()
+    detector = detector or YoloDetector()
     detector.load()
     motion = MotionRegistry()
     observations: Dict[str, CameraObservation] = {}

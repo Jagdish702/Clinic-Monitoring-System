@@ -160,11 +160,41 @@ class PhoneNavigator:
         out = self.shell("dumpsys", "window")
         return "mDreamingLockscreen=true" in out
 
+    def is_awake(self) -> bool:
+        """
+        True when the display is on.
+
+        Modern Android reports ``mWakefulness=Awake|Dozing|Asleep``; older
+        builds report ``mScreenOn``. Checking only the old key made a dozing
+        phone look awake on this device.
+        """
+        power = self.shell("dumpsys", "power")
+        if "mWakefulness=" in power:
+            return "mWakefulness=Awake" in power
+        return "mScreenOn=true" in power
+
+    def collapse_shade(self) -> None:
+        """
+        Close the notification shade if it is covering the app.
+
+        A pulled-down shade holds window focus, so every screen check sees
+        "NotificationShade" instead of Hik-Connect and navigation stalls.
+        """
+        if "NotificationShade" not in self.current_focus():
+            return
+        self.shell("cmd", "statusbar", "collapse")
+        time.sleep(0.8)
+        if "NotificationShade" in self.current_focus():
+            self.back()
+            time.sleep(0.8)
+
     def wake(self) -> None:
         """Turn the screen on. screencap returns black on a sleeping display."""
-        if "mScreenOn=true" not in self.shell("dumpsys", "power"):
+        if not self.is_awake():
+            log.info("phone is asleep - waking it")
             self.key("KEYCODE_WAKEUP")
-            time.sleep(1.0)
+            time.sleep(1.5)
+        self.collapse_shade()
 
     # -- the UI tree ------------------------------------------------------ #
     def dump_nodes(self, retries: int = 5) -> List[Node]:
@@ -254,18 +284,22 @@ class PhoneNavigator:
                 "the phone screen is locked - unlock it (a PIN cannot be "
                 "entered from here) and retry"
             )
+        timeout = timeout or config.NAV_LAUNCH_TIMEOUT_SEC
         self._run(
             ["shell", "am", "start", "-n", f"{self.package}/{config.HIK_LAUNCH_ACTIVITY}"]
         )
-        deadline = time.monotonic() + (timeout or config.NAV_LAUNCH_TIMEOUT_SEC)
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.is_app_foreground():
                 log.info("Hik-Connect is in the foreground (%s)", self.current_focus())
                 time.sleep(2.0)  # let the list finish drawing
                 return
+            # Something can slide over the app mid-launch - most often the
+            # notification shade, which then holds focus indefinitely.
+            self.collapse_shade()
             time.sleep(1.0)
         raise NavigationError(
-            f"Hik-Connect did not come to the foreground within {timeout}s "
+            f"Hik-Connect did not come to the foreground within {timeout:.0f}s "
             f"(focus is {self.current_focus()!r})"
         )
 

@@ -163,6 +163,23 @@ SCREENSHOT_RETENTION_DAYS = int(os.getenv("CM_SCREENSHOT_RETENTION_DAYS", "14"))
 SAVE_SCREENSHOTS = _env_bool("CM_SAVE_SCREENSHOTS", True)
 
 # --------------------------------------------------------------------------- #
+# Daily reporting
+# --------------------------------------------------------------------------- #
+# The schedule a clinic is expected to keep. Observed opening and closing are
+# compared against these; they are not used for anything else.
+EXPECTED_OPEN = os.getenv("CM_EXPECTED_OPEN", "09:00")
+EXPECTED_CLOSE = os.getenv("CM_EXPECTED_CLOSE", "17:00")
+EXPECTED_LUNCH_START = os.getenv("CM_EXPECTED_LUNCH_START", "13:00")
+EXPECTED_LUNCH_END = os.getenv("CM_EXPECTED_LUNCH_END", "14:00")
+SCHEDULE_TOLERANCE_MINUTES = int(os.getenv("CM_SCHEDULE_TOLERANCE", "30"))
+# People visible at once before the checkup area counts as unusually crowded.
+CROWDING_PERSONS = int(os.getenv("CM_CROWDING_PERSONS", "6"))
+# Quiet stretch during opening hours that is worth reporting.
+INACTIVITY_MINUTES = int(os.getenv("CM_INACTIVITY_MINUTES", "90"))
+# Midday quiet stretch long enough to read as a lunch break.
+LUNCH_MIN_MINUTES = int(os.getenv("CM_LUNCH_MIN_MINUTES", "30"))
+
+# --------------------------------------------------------------------------- #
 # Stage 6 - dashboard
 # --------------------------------------------------------------------------- #
 DASHBOARD_HOST = os.getenv("CM_DASHBOARD_HOST", "127.0.0.1")

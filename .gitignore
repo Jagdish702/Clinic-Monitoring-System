@@ -32,3 +32,6 @@ clinic_monitor/logs/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Generated daily reports
+clinic_monitor/reports/

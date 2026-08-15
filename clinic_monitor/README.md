@@ -227,6 +227,65 @@ Behaviour worth knowing:
 Each clinic costs roughly `duration + 30s` (navigation), so a full lap of 13
 clinics at 60s each takes about 20 minutes. The estimate is printed at startup.
 
+## Daily operational report
+
+Every patrol visit records one row per camera - including the quiet ones, so
+"nothing happened at 14:00" can be told apart from "nobody looked". `report.py`
+turns a day of those into a report per clinic.
+
+```bash
+report.bat                      today, every clinic patrolled
+report.bat 2026-08-15
+report.bat 2026-08-15 "CUREBAY NAYAHAT"
+report.bat --list-days
+```
+
+Written to `reports/<date>_<clinic>.md`. Four sections:
+
+1. **Operating hours** - opening, closing and the lunch break inferred from
+   when activity was seen, compared against the expected schedule
+   (`CM_EXPECTED_OPEN` and friends in `config.py`).
+2. **Occupancy** - what was actually seen, with confirmed and estimated
+   figures kept strictly apart.
+3. **Checkup area** - activity, crowding, prolonged inactivity during opening
+   hours, and anything flagged unusual.
+4. **Camera health** - per-camera verdict and the action to take.
+
+### Two honesty rules built into the report
+
+**No unique visitor total is produced.** Counting people entering without
+double-counting needs continuous video and tracking between frames. A patrol
+samples about a minute per clinic per lap, so any single "visitors today"
+number would be invented. The report gives a confirmed floor (most people
+visible at once), an over-counting upper bound (the sum of per-check peaks),
+and hourly peaks - each labelled with its confidence.
+
+**Coverage gaps are never reported as findings.** If the patrol started at
+16:00, the report says opening time *cannot be determined* rather than "opened
+7 hours late" - that would describe when we were watching, not the clinic.
+
+## Camera fault detection
+
+Cameras are checked from the picture itself, on frames the pipeline already
+has - no API call, no extra capture:
+
+| Verdict | What it looks like | Suggested action |
+| --- | --- | --- |
+| `no signal` | black and featureless (the Hikvision logo screen) | check power and NVR connection |
+| `frozen` | consecutive frames pixel-identical - a live sensor always has noise | restart the channel |
+| `too dark` | a real scene, but almost no light | check IR / night mode and lighting |
+| `needs cleaning` | normal brightness, but the whole picture is soft | clean the lens and dome |
+| `obstructed` | lit, yet most of the view carries no detail | something is in front of the lens |
+
+Thresholds are calibrated against real tiles from these clinics and validated
+against 88 saved frames with no false positives. Worth knowing: **sharpness
+does not separate a dead channel from a live one** - the Hikvision logo is
+crisp, so an offline channel scores higher detail than a real night scene.
+Brightness combined with flatness is what actually distinguishes them.
+
+Cameras found faulty are not sent to Gemini - a black screen costs an API call
+to be told it is black - and the fault is recorded instead.
+
 ## Asking about one clinic on demand
 
 The monitoring loop only spends a Gemini call when YOLO sees a person. A

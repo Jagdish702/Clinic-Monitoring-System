@@ -46,7 +46,43 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_ts       ON events (ts_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity, ts_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_events_clinic   ON events (clinic_name, ts_epoch DESC);
+
+-- One row per camera per patrol visit, whether or not anything happened.
+-- `events` only records things worth alerting on; a daily report needs the
+-- quiet observations too, otherwise "no activity between 13:00 and 14:00"
+-- cannot be told apart from "nobody looked".
+CREATE TABLE IF NOT EXISTS observations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       TEXT    NOT NULL,
+    ts_epoch        REAL    NOT NULL,
+    day             TEXT    NOT NULL,          -- YYYY-MM-DD, for grouping
+    clinic_name     TEXT    NOT NULL,
+    camera_name     TEXT    NOT NULL,
+    frames          INTEGER DEFAULT 0,
+    motion_frames   INTEGER DEFAULT 0,
+    max_persons     INTEGER DEFAULT 0,
+    health_status   TEXT,
+    brightness      REAL,
+    detail          REAL,
+    edge_ratio      REAL,
+    flat_ratio      REAL,
+    frame_change    REAL,
+    clinic_status   TEXT,
+    severity        TEXT,
+    unusual         INTEGER DEFAULT 0,
+    description     TEXT,
+    source          TEXT    NOT NULL DEFAULT 'patrol'
+);
+CREATE INDEX IF NOT EXISTS idx_obs_day    ON observations (day, clinic_name, ts_epoch);
+CREATE INDEX IF NOT EXISTS idx_obs_clinic ON observations (clinic_name, ts_epoch);
 """
+
+OBSERVATION_COLUMNS = (
+    "timestamp", "ts_epoch", "day", "clinic_name", "camera_name",
+    "frames", "motion_frames", "max_persons", "health_status",
+    "brightness", "detail", "edge_ratio", "flat_ratio", "frame_change",
+    "clinic_status", "severity", "unusual", "description", "source",
+)
 
 EVENT_COLUMNS = (
     "timestamp",
@@ -124,6 +160,44 @@ class Database:
         with self.conn as conn:
             cursor = conn.execute(sql, row)
             return int(cursor.lastrowid)
+
+    def insert_observation(self, observation: Dict[str, Any]) -> int:
+        row = {key: observation.get(key) for key in OBSERVATION_COLUMNS}
+        row["unusual"] = int(bool(row.get("unusual")))
+        placeholders = ", ".join(f":{c}" for c in OBSERVATION_COLUMNS)
+        sql = (
+            f"INSERT INTO observations ({', '.join(OBSERVATION_COLUMNS)}) "
+            f"VALUES ({placeholders})"
+        )
+        with self.conn as conn:
+            return int(conn.execute(sql, row).lastrowid)
+
+    def get_observations(
+        self, day: str, clinic_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Every observation for one day, oldest first (a day is a timeline)."""
+        sql = "SELECT * FROM observations WHERE day = ?"
+        params: List[Any] = [day]
+        if clinic_name and clinic_name.lower() != "all":
+            sql += " AND clinic_name = ?"
+            params.append(clinic_name)
+        sql += " ORDER BY ts_epoch ASC"
+        return [dict(row) for row in self.conn.execute(sql, params)]
+
+    def observed_clinics(self, day: str) -> List[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT clinic_name AS c FROM observations WHERE day = ? "
+            "ORDER BY c",
+            (day,),
+        ).fetchall()
+        return [row["c"] for row in rows]
+
+    def observed_days(self, limit: int = 30) -> List[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT day AS d FROM observations ORDER BY d DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row["d"] for row in rows]
 
     def acknowledge(self, event_id: int) -> None:
         with self.conn as conn:

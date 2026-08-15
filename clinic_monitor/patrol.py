@@ -1,4 +1,4 @@
-"""
+﻿"""
 Continuous patrol: rotate through every clinic, one after another, forever.
 
     Clinic 1 -> analyse -> Clinic 2 -> analyse -> ... -> Clinic N -> back to 1
@@ -32,6 +32,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
+from analysis.camera_health import CameraHealth, HealthStatus, assess_sequence  # noqa: E402
 from ask import CameraObservation, watch  # noqa: E402
 from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
@@ -61,6 +62,7 @@ class PatrolStats:
         self.gemini_calls = 0
         self.by_severity = {"High": 0, "Medium": 0, "Low": 0}
         self.highlights: List[str] = []
+        self.faults: Dict[str, HealthStatus] = {}
 
     def summary(self) -> str:
         mins = (time.monotonic() - self.started) / 60
@@ -71,6 +73,47 @@ class PatrolStats:
             f"Low {self.by_severity['Low']}) gemini={self.gemini_calls} "
             f"skipped={len(self.skipped)}"
         )
+
+
+def _observation_row(
+    clinic_name: str,
+    camera: str,
+    obs: CameraObservation,
+    health: Optional[CameraHealth],
+) -> dict:
+    """One row per camera per visit - the quiet ones matter for the report."""
+    when = datetime.fromtimestamp(obs.best_at) if obs.best_at else datetime.now()
+    row = {
+        "timestamp": when.astimezone().isoformat(timespec="seconds"),
+        "ts_epoch": when.timestamp(),
+        "day": when.strftime("%Y-%m-%d"),
+        "clinic_name": clinic_name,
+        "camera_name": camera,
+        "frames": obs.frames,
+        "motion_frames": obs.motion_frames,
+        "max_persons": obs.max_persons,
+        "health_status": health.status.value if health else None,
+        "brightness": health.brightness if health else None,
+        "detail": health.detail if health else None,
+        "edge_ratio": health.edge_ratio if health else None,
+        "flat_ratio": health.flat_ratio if health else None,
+        "frame_change": health.motion_between_frames if health else None,
+        "clinic_status": None,
+        "severity": None,
+        "unusual": False,
+        "description": "",
+        "source": "patrol",
+    }
+    return row
+
+
+def _save(event_logger: Optional[EventLogger], row: dict) -> None:
+    if event_logger is None:
+        return
+    try:
+        event_logger.db.insert_observation(row)
+    except Exception as exc:                      # never let logging stop a patrol
+        log.error("could not record observation: %s", exc)
 
 
 def visit(
@@ -101,11 +144,24 @@ def visit(
     for camera, obs in observations.items():
         active = obs.max_persons > 0 or obs.motion_frames > 0
 
+        health = assess_sequence(obs.samples) if obs.samples else None
+        record = _observation_row(clinic.name, camera, obs, health)
+
+        # A camera showing no stream will never show activity, so describing it
+        # is money spent to be told the screen is black. Report the fault.
+        if health is not None and health.status is not HealthStatus.OK:
+            print(f"    {camera:<12} CAMERA FAULT: {health.status.label}")
+            stats.faults[f"{clinic.name}/{camera}"] = health.status
+            if not health.usable:
+                _save(event_logger, record)
+                continue
+
         # Describing a camera that saw nothing costs an API call to be told
         # nothing happened. Idle cameras are reported from the cheap stages
         # instead, unless --all-cameras is given.
         if not active and not all_cameras:
             print(f"    {camera:<12} idle (no motion, no people)")
+            _save(event_logger, record)
             continue
 
         analysis = None
@@ -124,6 +180,7 @@ def visit(
         if analysis is None:
             print(f"    {camera:<12} {obs.activity} - no description "
                   f"(quota or error)")
+            _save(event_logger, record)
             continue
 
         stats.gemini_calls += 1
@@ -138,6 +195,14 @@ def visit(
                 f"[{stamp}] {analysis.severity} - {clinic.name}/{camera}: "
                 f"{analysis.description}"
             )
+
+        record.update(
+            clinic_status=analysis.clinic_status,
+            severity=analysis.severity,
+            unusual=analysis.unusual_activity or analysis.immediate_attention,
+            description=analysis.description,
+        )
+        _save(event_logger, record)
 
         if event_logger is not None:
             event_logger.log_event(

@@ -58,6 +58,13 @@ class CameraObservation:
     best_detections: List[Detection] = field(default_factory=list)
     best_score: float = -1.0
     best_at: float = 0.0
+    # A handful of frames spread across the visit. One frame cannot show that a
+    # feed has frozen; several can.
+    samples: List[np.ndarray] = field(default_factory=list)
+
+    def sample(self, frame: np.ndarray, every: int = 4, keep: int = 6) -> None:
+        if self.frames % every == 0 and len(self.samples) < keep:
+            self.samples.append(frame.copy())
 
     def consider(
         self,
@@ -111,6 +118,7 @@ def watch(
                 tile.camera_name, CameraObservation(tile.camera_name)
             )
             obs.frames += 1
+            obs.sample(tile.image)
 
             result = motion.update(clinic.name, tile.camera_name, tile.image)
             if result.warming_up:

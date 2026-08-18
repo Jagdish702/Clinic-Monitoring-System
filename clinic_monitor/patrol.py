@@ -36,6 +36,9 @@ from analysis.camera_health import CameraHealth, HealthStatus, assess_sequence  
 from ask import CameraObservation, watch  # noqa: E402
 from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
+import report as reporting  # noqa: E402
+from control import emulator  # noqa: E402
+from control.emulator import EmulatorError  # noqa: E402
 from control.navigator import (  # noqa: E402
     NavigationError,
     PhoneNavigator,
@@ -264,6 +267,15 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--question", default="", help="extra question per camera")
     parser.add_argument("--serial", help="adb serial, if several devices attached")
     parser.add_argument(
+        "--emulator", nargs="?", const="", metavar="AVD",
+        help="start (or reuse) the Android emulator and patrol through it, "
+        "instead of a phone on a cable. Optionally name the AVD.",
+    )
+    parser.add_argument(
+        "--no-reports", action="store_true",
+        help="skip rebuilding the daily report after each clinic",
+    )
+    parser.add_argument(
         "--no-log", action="store_true", help="do not write events to the database"
     )
     return parser.parse_args(argv)
@@ -287,7 +299,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     signal.signal(signal.SIGINT, _handle)
 
-    navigator = PhoneNavigator(serial=args.serial)
+    serial = args.serial
+    if args.emulator is not None:
+        try:
+            serial = emulator.ensure_running(args.emulator or None)
+        except EmulatorError as exc:
+            print(f"could not start the emulator: {exc}")
+            return 1
+        package = emulator.detect_hik_package(serial)
+        if package is None:
+            print(f"Hik-Connect is not installed on {serial}. Install it on the "
+                  "emulator and sign in, then run this again.")
+            return 1
+        print(f"emulator ready: {serial} (app: {package})")
+
+    navigator = PhoneNavigator(serial=serial)
     print("opening Hik-Connect and reading the device list...")
     try:
         navigator.launch()
@@ -343,6 +369,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             except Exception as exc:                      # never kill the patrol
                 stats.skipped[name] = f"error: {exc}"
                 log.exception("unexpected error at %s", name)
+
+            # Rebuild this clinic's report as soon as its visit ends, so the
+            # dashboard is current within a lap rather than only after a
+            # manual run. It is a cheap read of rows already written.
+            if not args.no_reports:
+                try:
+                    reporting.generate(name, datetime.now().strftime("%Y-%m-%d"),
+                                       event_logger.db if event_logger else None)
+                except Exception as exc:
+                    log.debug("report refresh failed for %s: %s", name, exc)
 
             if args.pause and not stop["now"]:
                 time.sleep(args.pause)

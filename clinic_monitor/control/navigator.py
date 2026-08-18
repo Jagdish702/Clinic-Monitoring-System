@@ -82,6 +82,44 @@ class PhoneNavigator:
         self.adb_path = adb_path or config.ADB_PATH
         self.package = package or config.HIK_PACKAGE
         self._base = [self.adb_path] + (["-s", serial] if serial else [])
+        self._package_checked = package is not None
+
+    def resolve_package(self) -> str:
+        """
+        Make sure ``self.package`` is a build that is actually installed.
+
+        The clinic phone runs a white-labelled package (com.connect.enduser)
+        while an emulator normally has the Play Store one
+        (com.hikvision.hikconnect). Detecting it means the same command works
+        on either device with no configuration.
+        """
+        if self._package_checked:
+            return self.package
+        self._package_checked = True
+
+        installed = set(
+            re.findall(r"package:(\S+)", self.shell("pm", "list", "packages"))
+        )
+        if not installed:                      # device unreachable; let it fail later
+            return self.package
+        if self.package in installed:
+            return self.package
+
+        for candidate in config.HIK_PACKAGE_CANDIDATES:
+            if candidate in installed:
+                log.info(
+                    "%s is not installed on this device - using %s instead",
+                    self.package,
+                    candidate,
+                )
+                self.package = candidate
+                return self.package
+
+        raise NavigationError(
+            f"none of the known Hik-Connect builds are installed on this "
+            f"device (looked for: {', '.join(config.HIK_PACKAGE_CANDIDATES)}). "
+            "Install the app and sign in first."
+        )
 
     # -- adb plumbing ----------------------------------------------------- #
     def _run(
@@ -261,19 +299,42 @@ class PhoneNavigator:
             )
         return nodes
 
-    @staticmethod
-    def screen_size(nodes: Sequence[Node]) -> Tuple[int, int]:
+    def screen_size(self, nodes: Optional[Sequence[Node]] = None) -> Tuple[int, int]:
         """
-        Screen size for the *current rotation*, taken from the tree itself.
+        Size of the frame that ``screencap`` produces.
 
-        ``wm size`` always reports the portrait dimensions, which would be
-        wrong whenever the app is in landscape.
+        This must match the capture coordinate space exactly, because tile
+        bounds from the UI tree get converted into fractions of it.
+
+        Measuring it from the UI tree is wrong on any device with on-screen
+        navigation buttons: there the app window is shorter than the display
+        (1080x2072 vs 1080x2340 on this emulator), so every crop slid ~13%
+        down the screen and picked up the app's toolbar. A phone using gesture
+        navigation hides the bug, because the two heights happen to match.
+
+        The PNG header of a screenshot is the authoritative answer, and it
+        costs one small capture.
         """
-        width = max((n.bounds[2] for n in nodes), default=0)
-        height = max((n.bounds[3] for n in nodes), default=0)
-        if not width or not height:
-            raise NavigationError("could not determine the screen size")
-        return width, height
+        png = self._stdout(["exec-out", "screencap", "-p"], timeout=30.0)
+        if png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) >= 24:
+            width = int.from_bytes(png[16:20], "big")
+            height = int.from_bytes(png[20:24], "big")
+            if width and height:
+                return width, height
+
+        # Fall back to the tree only if the capture failed outright.
+        if nodes:
+            width = max((n.bounds[2] for n in nodes), default=0)
+            height = max((n.bounds[3] for n in nodes), default=0)
+            if width and height:
+                log.warning(
+                    "using UI-tree bounds for the screen size (%dx%d); crops may "
+                    "be off if this device has on-screen navigation buttons",
+                    width,
+                    height,
+                )
+                return width, height
+        raise NavigationError("could not determine the screen size")
 
     # -- launching -------------------------------------------------------- #
     def launch(self, timeout: Optional[float] = None) -> None:
@@ -285,9 +346,14 @@ class PhoneNavigator:
                 "entered from here) and retry"
             )
         timeout = timeout or config.NAV_LAUNCH_TIMEOUT_SEC
-        self._run(
-            ["shell", "am", "start", "-n", f"{self.package}/{config.HIK_LAUNCH_ACTIVITY}"]
-        )
+        self.resolve_package()
+        # The activity class path is the same across builds; only the package
+        # differs, so it is resolved relative to whichever package is present.
+        activity = config.HIK_LAUNCH_ACTIVITY
+        if activity.startswith(config.HIK_PACKAGE):
+            activity = activity[len(config.HIK_PACKAGE):].lstrip(".")
+            activity = f"{self.package}.{activity}"
+        self._run(["shell", "am", "start", "-n", f"{self.package}/{activity}"])
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.is_app_foreground():

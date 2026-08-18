@@ -1,4 +1,4 @@
-"""
+﻿"""
 On-demand query: watch a clinic for a while and report what is happening.
 
 This is the request/response counterpart to ``main.py``. The monitoring loop is
@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
 from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
+from analysis.camera_health import HealthStatus, assess_frame  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
 from capture.frame_reader import FrameReader  # noqa: E402
 from control.navigator import NavigationError, PhoneNavigator, build_clinic  # noqa: E402
@@ -92,6 +93,44 @@ class CameraObservation:
         return "no activity"
 
 
+def wait_for_streams(
+    reader: FrameReader, max_wait: float = 20.0, poll: float = 1.5
+) -> int:
+    """
+    Wait for the app's video streams to actually connect before measuring.
+
+    Tiles are black for the first seconds after a live view opens. Judging
+    camera health then condemns working cameras as "no signal" - which it did:
+    a clearly streaming camera was reported offline because the emulator
+    connects more slowly than the phone.
+
+    Waiting for *all* tiles is not an option, because genuinely dead channels
+    never load. Instead this waits until the number of live-looking tiles stops
+    growing, so a fully-loaded view returns almost immediately and a partly
+    dead one is not waited on forever.
+    """
+    best, stable = -1, 0
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        tiles = reader.read()
+        if not tiles:
+            time.sleep(poll)
+            continue
+        live = sum(
+            1
+            for tile in tiles
+            if assess_frame(tile.image).status is not HealthStatus.NO_SIGNAL
+        )
+        if live > best:
+            best, stable = live, 0
+        else:
+            stable += 1
+            if stable >= 2:
+                return live
+        time.sleep(poll)
+    return max(best, 0)
+
+
 def watch(
     clinic: "config.ClinicConfig",
     duration: float,
@@ -109,6 +148,9 @@ def watch(
     detector.load()
     motion = MotionRegistry()
     observations: Dict[str, CameraObservation] = {}
+
+    live = wait_for_streams(reader)
+    log.info("%d of %d tiles are streaming", live, len(clinic.active_cameras()))
 
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:

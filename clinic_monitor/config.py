@@ -74,12 +74,38 @@ LAYOUT_SEAM_MIN_COVERAGE = 0.85 # fraction of the seam that must satisfy both
 LAYOUT_SINGLE_VIEW_NAME = "Full view"
 
 # --------------------------------------------------------------------------- #
+# Android emulator - an alternative to a physically connected phone
+# --------------------------------------------------------------------------- #
+# With an emulator the whole system needs no cable and no handset, which is
+# also what makes it deployable on a server.
+ANDROID_SDK = os.getenv("ANDROID_HOME") or os.getenv("ANDROID_SDK_ROOT", "")
+# Empty means "use the only AVD installed", which is the common case.
+EMULATOR_AVD = os.getenv("CM_EMULATOR_AVD", "")
+EMULATOR_BOOT_TIMEOUT_SEC = float(os.getenv("CM_EMULATOR_BOOT_TIMEOUT", "240"))
+# -no-snapshot-save keeps a crash from corrupting the saved state; the rest
+# just makes boot quicker and networking unthrottled.
+EMULATOR_ARGS = (
+    "-no-snapshot-save",
+    "-no-boot-anim",
+    "-netdelay", "none",
+    "-netspeed", "full",
+)
+
+# --------------------------------------------------------------------------- #
 # Phone control - opening the app and navigating to a clinic
 # --------------------------------------------------------------------------- #
 # This build of Hik-Connect is white-labelled: the package is NOT
 # com.hikvision.hikconnect. Verify with:
 #   adb shell cmd package resolve-activity --brief <package>
 HIK_PACKAGE = os.getenv("CM_HIK_PACKAGE", "com.connect.enduser")
+# Builds of the same app seen in the wild. The navigator checks which one is
+# actually installed rather than assuming, because the white-labelled build on
+# the clinic phone and the Play Store build on an emulator differ.
+HIK_PACKAGE_CANDIDATES = (
+    "com.connect.enduser",        # CureBay white-label
+    "com.hikvision.hikconnect",   # Play Store Hik-Connect
+    "com.mcu.iVMS",               # iVMS-4500
+)
 HIK_LAUNCH_ACTIVITY = os.getenv(
     "CM_HIK_ACTIVITY", "com.hikvision.hikconnect.login.LoadingActivity"
 )

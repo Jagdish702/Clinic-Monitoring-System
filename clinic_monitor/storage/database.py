@@ -184,6 +184,20 @@ class Database:
         sql += " ORDER BY ts_epoch ASC"
         return [dict(row) for row in self.conn.execute(sql, params)]
 
+    def camera_descriptions(self, limit: int = 4000) -> List[Dict[str, Any]]:
+        """
+        Recent scene descriptions, used to infer whether a camera looks indoors
+        or outdoors. Drawn from all history, not one day, because a camera's
+        role does not change and more samples make the inference safer.
+        """
+        rows = self.conn.execute(
+            "SELECT clinic_name, camera_name, description FROM events "
+            "WHERE description IS NOT NULL AND description != '' "
+            "ORDER BY ts_epoch DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def observed_clinics(self, day: str) -> List[str]:
         rows = self.conn.execute(
             "SELECT DISTINCT clinic_name AS c FROM observations WHERE day = ? "
@@ -231,7 +245,14 @@ class Database:
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([int(limit), int(offset)])
-        sql = f"SELECT * FROM events {where} ORDER BY ts_epoch DESC LIMIT ? OFFSET ?"
+        # Newest visit first, but cameras within a visit keep the order they
+        # were written (Camera 01, 02, 03...). They now share one timestamp so
+        # they group together, and without the id tiebreak they would come out
+        # reversed.
+        sql = (
+            f"SELECT * FROM events {where} "
+            "ORDER BY ts_epoch DESC, id ASC LIMIT ? OFFSET ?"
+        )
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_dict(row) for row in rows]
 

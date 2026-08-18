@@ -1,4 +1,4 @@
-"""
+﻿"""
 Stage 6 - dashboard.
 
 A small Flask app that lists alerts newest-first with severity / clinic
@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
 import report as reporting  # noqa: E402
+from analysis.camera_role import infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
 from storage.database import Database  # noqa: E402
 
@@ -74,15 +75,47 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         )
 
     # -- api --------------------------------------------------------------- #
+    # Camera roles change rarely and cost a scan of the descriptions, so they
+    # are worked out once in a while rather than on every poll.
+    _roles = {"data": {}, "at": 0.0}
+
+    def _camera_roles():
+        if time.time() - _roles["at"] > 120:
+            _roles["data"] = infer_roles(database.camera_descriptions())
+            _roles["at"] = time.time()
+        return _roles["data"]
+
+    def _annotate(events):
+        """
+        Tag each event with its camera's role, and drop the open/closed verdict
+        from outdoor cameras.
+
+        An outdoor camera cannot see whether the clinic is open. Measured here,
+        the outdoor camera reported "Closed" while the indoor one reported
+        "Open" at the same minute, at four different clinics - so showing both
+        with equal weight actively misleads. The stored value is untouched;
+        only the display drops it.
+        """
+        roles = _camera_roles()
+        for event in events:
+            role = roles.get((event["clinic_name"], event["camera_name"]))
+            event["camera_role"] = role
+            if role == "outdoor" and event.get("clinic_status"):
+                event["clinic_status_raw"] = event["clinic_status"]
+                event["clinic_status"] = None
+        return events
+
     @app.route("/api/events")
     def api_events():
         severity, clinic, camera, limit, since = _filters()
-        events = database.get_events(
-            severity=severity,
-            clinic_name=clinic,
-            camera_name=camera,
-            since_epoch=since,
-            limit=limit,
+        events = _annotate(
+            database.get_events(
+                severity=severity,
+                clinic_name=clinic,
+                camera_name=camera,
+                since_epoch=since,
+                limit=limit,
+            )
         )
         return jsonify({"count": len(events), "events": events})
 

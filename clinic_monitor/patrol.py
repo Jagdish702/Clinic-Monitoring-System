@@ -110,6 +110,78 @@ def _observation_row(
     return row
 
 
+def _plain_description(
+    obs: CameraObservation, health: Optional[CameraHealth]
+) -> str:
+    """
+    Describe a camera without spending an API call.
+
+    Idle and faulty cameras are not sent to Gemini - there is nothing to
+    describe and the answer would cost money to say so. They still belong in
+    the dashboard though: a clinic where nothing moved should show four quiet
+    cameras, not disappear from the feed entirely.
+    """
+    if health is not None and health.status.is_problem:
+        return f"Camera fault: {health.status.label}. {health.status.action}."
+    if obs.motion_frames:
+        return "Movement seen, but no people identified."
+    return "No activity: no movement and no people seen during this check."
+
+
+def _log_camera(
+    event_logger: Optional[EventLogger],
+    clinic_name: str,
+    camera: str,
+    obs: CameraObservation,
+    health: Optional[CameraHealth],
+    when: datetime,
+    analysis=None,
+) -> None:
+    """Write one dashboard event for a camera, described or not."""
+    if event_logger is None:
+        return
+    frame = obs.best_frame
+    if frame is not None and obs.best_detections:
+        frame = draw_detections(frame, obs.best_detections)
+
+    if analysis is not None:
+        event_logger.log_event(
+            clinic_name=clinic_name, camera_name=camera,
+            description=analysis.description, severity=analysis.severity,
+            frame=frame,
+            confidence=max((d.confidence for d in obs.best_detections), default=None),
+            clinic_status=analysis.clinic_status, reason=analysis.reason,
+            staff_present=analysis.staff_present,
+            patient_present=analysis.patient_present,
+            unusual_activity=analysis.unusual_activity,
+            immediate_attention=analysis.immediate_attention,
+            person_count=obs.max_persons, detections=obs.best_detections,
+            source="patrol", when=when,
+        )
+        return
+
+    event_logger.log_event(
+        clinic_name=clinic_name, camera_name=camera,
+        description=_plain_description(obs, health),
+        severity="Low",
+        frame=frame,
+        # Deliberately blank, not "Unclear". These cameras never went to
+        # Gemini, so open/closed was never judged - and "Unclear" would claim
+        # we looked and could not decide. The dashboard omits the pill when
+        # this is empty, which is the truthful display.
+        clinic_status=None,
+        reason=(
+            "Reported from motion and object detection; no AI description was "
+            "needed for this camera."
+        ),
+        person_count=obs.max_persons,
+        motion_score=round(obs.motion_frames / max(obs.frames, 1), 3),
+        detections=obs.best_detections,
+        source="patrol",
+        when=when,
+    )
+
+
 def _save(event_logger: Optional[EventLogger], row: dict) -> None:
     if event_logger is None:
         return
@@ -144,7 +216,12 @@ def visit(
         print("    no frames captured")
         return
 
-    for camera, obs in observations.items():
+    # Every camera of one visit is filed under a single timestamp so the
+    # dashboard groups them together. Using each camera's own best-frame time
+    # scattered a clinic's cameras across the feed seconds apart.
+    visit_at = datetime.now()
+
+    for camera, obs in sorted(observations.items()):
         active = obs.max_persons > 0 or obs.motion_frames > 0
 
         health = assess_sequence(obs.samples) if obs.samples else None
@@ -157,14 +234,19 @@ def visit(
             stats.faults[f"{clinic.name}/{camera}"] = health.status
             if not health.usable:
                 _save(event_logger, record)
+                _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
+                stats.events += 1
                 continue
 
         # Describing a camera that saw nothing costs an API call to be told
         # nothing happened. Idle cameras are reported from the cheap stages
-        # instead, unless --all-cameras is given.
+        # instead, unless --all-cameras is given - but they still appear in the
+        # dashboard, so a quiet clinic shows as quiet rather than missing.
         if not active and not all_cameras:
             print(f"    {camera:<12} idle (no motion, no people)")
             _save(event_logger, record)
+            _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
+            stats.events += 1
             continue
 
         analysis = None
@@ -184,6 +266,8 @@ def visit(
             print(f"    {camera:<12} {obs.activity} - no description "
                   f"(quota or error)")
             _save(event_logger, record)
+            _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
+            stats.events += 1
             continue
 
         stats.gemini_calls += 1
@@ -207,28 +291,10 @@ def visit(
         )
         _save(event_logger, record)
 
-        if event_logger is not None:
-            event_logger.log_event(
-                clinic_name=clinic.name,
-                camera_name=camera,
-                description=analysis.description,
-                severity=analysis.severity,
-                frame=draw_detections(obs.best_frame, obs.best_detections),
-                confidence=max(
-                    (d.confidence for d in obs.best_detections), default=None
-                ),
-                clinic_status=analysis.clinic_status,
-                reason=analysis.reason,
-                staff_present=analysis.staff_present,
-                patient_present=analysis.patient_present,
-                unusual_activity=analysis.unusual_activity,
-                immediate_attention=analysis.immediate_attention,
-                person_count=obs.max_persons,
-                detections=obs.best_detections,
-                source="patrol",
-                when=datetime.fromtimestamp(obs.best_at),
-            )
-            stats.events += 1
+        _log_camera(
+            event_logger, clinic.name, camera, obs, health, visit_at, analysis
+        )
+        stats.events += 1
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:

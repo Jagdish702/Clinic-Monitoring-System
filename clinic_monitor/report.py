@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
 from analysis.camera_health import FROZEN_DIFF, HealthStatus  # noqa: E402
+from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from storage.database import Database  # noqa: E402
 
 REPORT_DIR = config.BASE_DIR / "reports"
@@ -117,16 +118,24 @@ def visit_times(rows: Sequence[dict], gap_seconds: float = 180.0) -> List[float]
 # --------------------------------------------------------------------------- #
 # 1. Operating hours
 # --------------------------------------------------------------------------- #
-def operating_hours(rows: Sequence[dict]) -> dict:
+def operating_hours(
+    rows: Sequence[dict], indoor: Optional[set] = None
+) -> dict:
     """
     Infer opening, closing and the lunch break from when activity was seen.
 
     These are bounded by the patrol's sampling: the clinic opened *at or
     before* the first activity seen, and closed *at or after* the last. The
     gap between visits is reported so the reader knows the margin.
+
+    When the indoor camera is known, only it is used. Activity on an outdoor
+    camera says nothing about whether the clinic is working - someone walking
+    past at 21:00 would otherwise extend the day's "closing time" by hours.
     """
     usable = [r for r in rows if _usable(r)]
-    active = [r for r in usable if _active(r)]
+    scope = [r for r in usable if r["camera_name"] in indoor] if indoor else []
+    used_indoor = bool(scope)
+    active = [r for r in (scope or usable) if _active(r)]
     visits = visit_times(usable)
 
     gaps = [b - a for a, b in zip(visits, visits[1:])] if len(visits) > 1 else []
@@ -136,6 +145,7 @@ def operating_hours(rows: Sequence[dict]) -> dict:
         return {
             "opened": None, "closed": None, "lunch": None,
             "resolution_min": typical_gap, "first_seen": None, "last_seen": None,
+            "used_indoor": used_indoor, "basis": sorted(indoor) if indoor else [],
             "note": "no activity was observed all day",
         }
 
@@ -160,6 +170,8 @@ def operating_hours(rows: Sequence[dict]) -> dict:
         "resolution_min": typical_gap,
         "first_seen": _time(usable[0]),
         "last_seen": _time(usable[-1]),
+        "used_indoor": used_indoor,
+        "basis": sorted(indoor) if indoor else [],
         "note": "",
     }
 
@@ -366,8 +378,10 @@ def camera_health(rows: Sequence[dict]) -> List[dict]:
 # --------------------------------------------------------------------------- #
 # Rendering
 # --------------------------------------------------------------------------- #
-def build_report(clinic: str, day: str, rows: Sequence[dict]) -> str:
-    hours = operating_hours(rows)
+def build_report(
+    clinic: str, day: str, rows: Sequence[dict], indoor: Optional[set] = None
+) -> str:
+    hours = operating_hours(rows, indoor)
     occ = occupancy(rows)
     checkup = checkup_area(rows, hours)
     health = camera_health(rows)
@@ -388,6 +402,15 @@ def build_report(clinic: str, day: str, rows: Sequence[dict]) -> str:
         add(f"{hours['note']}.\n")
     add(f"Monitoring covered **{_hhmm(hours['first_seen'])} to "
         f"{_hhmm(hours['last_seen'])}**. Nothing outside that window was seen.\n")
+    if hours.get("used_indoor"):
+        add(f"Times below come from the indoor camera "
+            f"({', '.join(hours['basis'])}) only. Activity outdoors - someone "
+            f"walking past in the evening - says nothing about whether the "
+            f"clinic is working.\n")
+    else:
+        add("_No indoor camera has been identified for this clinic yet, so "
+            "these times use every working camera and may be stretched by "
+            "passers-by outside._\n")
     add("| | Observed | Expected | Verdict |")
     add("| --- | --- | --- | --- |")
     add(f"| Opened (first activity seen) | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
@@ -490,9 +513,13 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
     rows = db.get_observations(day, clinic)
     if not rows:
         return None
+    roles = infer_roles(db.camera_descriptions())
     path = report_path(clinic, day)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_report(clinic, day, rows), encoding="utf-8")
+    path.write_text(
+        build_report(clinic, day, rows, indoor_cameras(roles, clinic)),
+        encoding="utf-8",
+    )
     return path
 
 

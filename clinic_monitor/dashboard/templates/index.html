@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clinic Monitor — Alerts</title>
+<title>Clinic Monitor â€” Alerts</title>
 <style>
   :root{
     --bg:#0f1216; --panel:#171b21; --panel-2:#1e242c; --line:#2a323c;
@@ -107,8 +107,8 @@
 <body>
 <header>
   <div class="bar">
-    <h1>Clinic Monitor <span>live alerts · newest first</span></h1>
-    <button class="btn primary" id="open-reports">All clinics · daily reports</button>
+    <h1>Clinic Monitor <span>live alerts Â· newest first</span></h1>
+    <button class="btn primary" id="open-reports">All clinics Â· daily reports</button>
     <div class="tiles">
       <div class="tile high"><b id="c-high">{{ counts.High }}</b>High</div>
       <div class="tile medium"><b id="c-medium">{{ counts.Medium }}</b>Medium</div>
@@ -160,7 +160,7 @@
   </div>
 </div>
 
-<footer>auto-refreshing every {{ refresh }}s · <span id="updated">—</span></footer>
+<footer>auto-refreshing every {{ refresh }}s Â· <span id="updated">â€”</span></footer>
 
 <script>
 const REFRESH_MS = {{ refresh }} * 1000;
@@ -175,9 +175,9 @@ function when(ev){
   const d = new Date(ev.ts_epoch * 1000);
   const diff = (Date.now() - d.getTime()) / 1000;
   const stamp = d.toLocaleString();
-  if (diff < 60) return "just now · " + stamp;
-  if (diff < 3600) return Math.floor(diff/60) + "m ago · " + stamp;
-  if (diff < 86400) return Math.floor(diff/3600) + "h ago · " + stamp;
+  if (diff < 60) return "just now Â· " + stamp;
+  if (diff < 3600) return Math.floor(diff/60) + "m ago Â· " + stamp;
+  if (diff < 86400) return Math.floor(diff/3600) + "h ago Â· " + stamp;
   return stamp;
 }
 
@@ -197,6 +197,7 @@ function card(ev){
   if (ev.patient_present) pills.push(`<span class="pill">patient visible</span>`);
   if (ev.unusual_activity) pills.push(`<span class="pill warn">unusual activity</span>`);
   if (ev.immediate_attention) pills.push(`<span class="pill warn">needs attention</span>`);
+  if (ev.camera_role) pills.push(`<span class="pill">${esc(ev.camera_role)} camera</span>`);
   if (ev.source) pills.push(`<span class="pill">via ${esc(ev.source)}</span>`);
 
   return `<article class="event ${sev}">
@@ -204,7 +205,7 @@ function card(ev){
     <div class="body">
       <div class="row1">
         <span class="sev ${sev}">${esc(ev.severity)}</span>
-        <span class="where">${esc(ev.clinic_name)} · ${esc(ev.camera_name)}</span>
+        <span class="where">${esc(ev.clinic_name)} Â· ${esc(ev.camera_name)}</span>
         <span class="when">${esc(when(ev))}</span>
       </div>
       <p class="desc">${esc(ev.description)}</p>
@@ -255,7 +256,7 @@ function showList(){
 }
 
 async function loadClinics(day){
-  listEl.innerHTML = '<p class="note">loading…</p>';
+  listEl.innerHTML = '<p class="note">loadingâ€¦</p>';
   showList();
   const qs = day ? "?day=" + encodeURIComponent(day) : "";
   const data = await (await fetch("/api/reports" + qs, {cache:"no-store"})).json();
@@ -274,7 +275,7 @@ async function loadClinics(day){
     return;
   }
 
-  listEl.innerHTML = `<p class="note">${data.clinics.length} clinic(s) ·
+  listEl.innerHTML = `<p class="note">${data.clinics.length} clinic(s) Â·
       click one to read its report for ${esc(data.day)}</p>
     <div class="clinic-grid">` +
     data.clinics.map(c => `
@@ -282,7 +283,7 @@ async function loadClinics(day){
         <span class="nm">${esc(c.name)}</span>
         <span class="st ${c.has_report ? "ready" : "missing"}">
           ${c.has_report ? "report ready" :
-            (c.observed_today ? "patrolled — press Update reports" : "no report for this day")}
+            (c.observed_today ? "patrolled â€” press Update reports" : "no report for this day")}
         </span>
       </button>`).join("") + "</div>";
 
@@ -296,7 +297,7 @@ async function openReport(slug, name){
   viewEl.hidden = false;
   backBtn.hidden = false;
   titleEl.textContent = name;
-  viewEl.innerHTML = '<p class="note">loading…</p>';
+  viewEl.innerHTML = '<p class="note">loadingâ€¦</p>';
 
   const res = await fetch(`/api/reports/${encodeURIComponent(slug)}?day=` +
                           encodeURIComponent(currentDay), {cache:"no-store"});
@@ -309,12 +310,12 @@ async function openReport(slug, name){
   const data = await res.json();
   viewEl.innerHTML = data.html +
     `<p class="note" style="margin-top:22px">saved as
-      reports/${esc(slug)}/${esc(data.day)}.md · built ${esc(data.updated)}</p>`;
+      reports/${esc(slug)}/${esc(data.day)}.md Â· built ${esc(data.updated)}</p>`;
 }
 
 updateBtn.onclick = async () => {
   updateBtn.disabled = true;
-  updateBtn.textContent = "Updating…";
+  updateBtn.textContent = "Updatingâ€¦";
   try{
     const res = await fetch("/api/reports/generate?day=" +
                             encodeURIComponent(currentDay), {method:"POST"});

@@ -82,6 +82,11 @@ ANDROID_SDK = os.getenv("ANDROID_HOME") or os.getenv("ANDROID_SDK_ROOT", "")
 # Empty means "use the only AVD installed", which is the common case.
 EMULATOR_AVD = os.getenv("CM_EMULATOR_AVD", "")
 EMULATOR_BOOT_TIMEOUT_SEC = float(os.getenv("CM_EMULATOR_BOOT_TIMEOUT", "240"))
+# Headless: the emulator window is never looked at - every frame is read over
+# ADB - so drawing and compositing it is pure overhead. This is the single
+# biggest thing that reduces emulator lag, and it is what makes the setup
+# viable on a server with no display at all.
+EMULATOR_HEADLESS = _env_bool("CM_EMULATOR_HEADLESS", True)
 # -no-snapshot-save keeps a crash from corrupting the saved state; the rest
 # just makes boot quicker and networking unthrottled.
 EMULATOR_ARGS = (
@@ -90,6 +95,11 @@ EMULATOR_ARGS = (
     "-netdelay", "none",
     "-netspeed", "full",
 )
+# Memory the AVD gets. Android 12 decoding several video streams struggles on
+# the 2048 MB default; these are applied to the AVD's config.ini by
+# `python -m control.emulator --tune`.
+EMULATOR_RAM_MB = int(os.getenv("CM_EMULATOR_RAM_MB", "4096"))
+EMULATOR_HEAP_MB = int(os.getenv("CM_EMULATOR_HEAP_MB", "512"))
 
 # --------------------------------------------------------------------------- #
 # Phone control - opening the app and navigating to a clinic

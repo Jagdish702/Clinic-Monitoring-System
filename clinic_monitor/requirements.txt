@@ -1,21 +1,58 @@
+# Python packages for the clinic monitoring system.
+#
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r clinic_monitor\requirements.txt
+#
+# Requires Python 3.9+ (developed and run on 3.12).
+#
+# ---------------------------------------------------------------------------
+# NOT installable with pip - these must be present as well:
+#
+#   Android platform-tools (adb)   the only way frames are captured.
+#                                  Set CM_ADB_PATH if it is not on PATH.
+#   Android emulator + an AVD      only for the emulator path (patrol.bat).
+#                                  Needs hardware acceleration: WHPX on
+#                                  Windows, KVM on Linux, Hypervisor on macOS.
+#   Hik-Connect installed and      the video source. The package name is
+#   signed in on the device        detected automatically.
+#
+# yolov8n.pt (~6 MB) downloads itself on first use; it is not a pip package.
+# ---------------------------------------------------------------------------
+
 # Core pipeline
 opencv-python==4.10.0.84
 numpy==1.26.4
 
-# Stage 3 - YOLOv8n (CPU wheels; no CUDA)
+# Stage 3 - YOLOv8n object detection, CPU only.
+# On Windows the PyPI wheels are already CPU-only. On Linux they bundle CUDA
+# (~2.5 GB), so for a server install use the CPU index instead:
+#   pip install torch==2.4.1 torchvision==0.19.1 \
+#       --index-url https://download.pytorch.org/whl/cpu
 ultralytics==8.3.27
 torch==2.4.1
 torchvision==0.19.1
 
-# Stage 4 - Gemini Flash vision
-# 2.x is required for thinking_budget=0, which keeps latency and truncation down
+# Stage 4 - Gemini Flash vision.
+# 2.x is required: it carries thinking_config, without which the model spends
+# its output budget reasoning and returns truncated JSON.
 google-genai>=2.17.0
 
-# Stage 6 - dashboard
+# Stage 6 - dashboard and the report viewer
 Flask==3.0.3
 
-# Convenience
+# Reads .env
 python-dotenv==1.0.1
 
-# Optional: only needed for the "scrcpy" capture backend
+# Optional: only for the "scrcpy" capture backend, which mirrors the phone to a
+# desktop window instead of using adb screencap. Not needed by default.
 # mss==9.0.2
+
+# ---------------------------------------------------------------------------
+# Dashboard-only install (for hosting it separately from the capture agent):
+# the dashboard never runs YOLO, so it needs just these three - about 150 MB
+# rather than 2.5 GB.
+#
+#   Flask==3.0.3
+#   opencv-python==4.10.0.84
+#   numpy==1.26.4
+# ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,8 @@ from flask import Flask, abort, jsonify, render_template, request, send_from_dir
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
+import report as reporting  # noqa: E402
+from dashboard.render import markdown_to_html  # noqa: E402
 from storage.database import Database  # noqa: E402
 
 SEVERITIES = ("High", "Medium", "Low")
@@ -100,6 +103,100 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             abort(404)
         database.acknowledge(event_id)
         return jsonify({"ok": True, "id": event_id})
+
+    # -- daily reports ------------------------------------------------------ #
+    def _today() -> str:
+        return datetime.now().strftime("%Y-%m-%d")
+
+    @app.route("/api/reports")
+    def api_reports():
+        """
+        Every clinic worth showing, whether or not a report exists yet.
+
+        Clinics that were patrolled today but never had a report generated
+        still appear, marked as needing an update - otherwise a clinic with
+        fresh data would be invisible until someone ran the CLI.
+        """
+        day = request.args.get("day") or _today()
+        on_disk = reporting.available_reports()
+        observed = database.observed_clinics(day)
+
+        clinics = []
+        seen = set()
+        for name in observed:
+            slug = reporting.clinic_slug(name)
+            seen.add(slug)
+            clinics.append(
+                {
+                    "name": name,
+                    "slug": slug,
+                    "has_report": day in on_disk.get(slug, []),
+                    "days": on_disk.get(slug, []),
+                    "observed_today": True,
+                }
+            )
+        # Clinics with older reports but no data today still deserve a listing.
+        for slug, days in on_disk.items():
+            if slug in seen:
+                continue
+            clinics.append(
+                {
+                    "name": slug.replace("_", " "),
+                    "slug": slug,
+                    "has_report": day in days,
+                    "days": days,
+                    "observed_today": False,
+                }
+            )
+
+        clinics.sort(key=lambda c: (not c["observed_today"], c["name"]))
+        return jsonify(
+            {"day": day, "count": len(clinics), "clinics": clinics,
+             "days_with_data": database.observed_days(limit=14)}
+        )
+
+    @app.route("/api/reports/<slug>")
+    def api_report(slug: str):
+        day = request.args.get("day") or _today()
+        path = config.BASE_DIR / "reports" / slug / f"{day}.md"
+        try:
+            # Never let a crafted slug walk out of the reports directory.
+            path.resolve().relative_to((config.BASE_DIR / "reports").resolve())
+        except ValueError:
+            abort(404)
+        if not path.is_file():
+            return jsonify({"slug": slug, "day": day, "found": False,
+                            "html": "", "markdown": ""}), 404
+        text = path.read_text(encoding="utf-8")
+        return jsonify(
+            {
+                "slug": slug,
+                "day": day,
+                "found": True,
+                "markdown": text,
+                "html": markdown_to_html(text),
+                "updated": datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                    timespec="seconds"
+                ),
+            }
+        )
+
+    @app.route("/api/reports/generate", methods=["POST"])
+    def api_generate_reports():
+        """Rebuild every clinic's report for the day from stored observations."""
+        day = request.args.get("day") or _today()
+        try:
+            written = reporting.generate_all(day, db=database)
+        except Exception as exc:                      # surface, never 500 blindly
+            return jsonify({"ok": False, "day": day, "error": str(exc)}), 500
+        return jsonify(
+            {
+                "ok": True,
+                "day": day,
+                "generated": len(written),
+                "clinics": [p.parent.name for p in written],
+            }
+        )
 
     # -- static evidence ---------------------------------------------------- #
     @app.route("/screenshots/<path:relative_path>")

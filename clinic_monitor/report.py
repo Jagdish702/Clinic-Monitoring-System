@@ -39,7 +39,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
-from analysis.camera_health import HealthStatus  # noqa: E402
+from analysis.camera_health import FROZEN_DIFF, HealthStatus  # noqa: E402
 from storage.database import Database  # noqa: E402
 
 REPORT_DIR = config.BASE_DIR / "reports"
@@ -67,10 +67,51 @@ def _active(row: dict) -> bool:
     return (row.get("max_persons") or 0) > 0 or (row.get("motion_frames") or 0) > 0
 
 
+def effective_status(row: dict) -> Optional[str]:
+    """
+    Re-derive the health verdict from the stored measurements.
+
+    Verdicts recorded before the frozen-feed rule took priority can say
+    "obstructed" for a stream that had simply stalled. The raw numbers are
+    stored, so the conclusion is recomputed here instead of trusting the label
+    written at the time - old reports then correct themselves.
+    """
+    status = row.get("health_status")
+    change = row.get("frame_change")
+    if (
+        status
+        and status != HealthStatus.NO_SIGNAL.value
+        and change is not None
+        and change < FROZEN_DIFF
+    ):
+        return HealthStatus.FROZEN.value
+    return status
+
+
 def _usable(row: dict) -> bool:
     """Whether the camera was working well enough to believe."""
-    status = row.get("health_status")
-    return status in (None, HealthStatus.OK.value, HealthStatus.NEEDS_CLEANING.value)
+    return effective_status(row) in (
+        None,
+        HealthStatus.OK.value,
+        HealthStatus.NEEDS_CLEANING.value,
+    )
+
+
+def visit_times(rows: Sequence[dict], gap_seconds: float = 180.0) -> List[float]:
+    """
+    Collapse per-camera rows into the patrol visits they came from.
+
+    Every camera in a visit is recorded a few seconds apart, so counting
+    distinct timestamps counts cameras, not visits - which made a single
+    4-camera visit look like four checks seconds apart, and in turn made the
+    reported timing resolution nonsense.
+    """
+    stamps = sorted(r["ts_epoch"] for r in rows)
+    visits: List[float] = []
+    for stamp in stamps:
+        if not visits or stamp - visits[-1] > gap_seconds:
+            visits.append(stamp)
+    return visits
 
 
 # --------------------------------------------------------------------------- #
@@ -86,7 +127,7 @@ def operating_hours(rows: Sequence[dict]) -> dict:
     """
     usable = [r for r in rows if _usable(r)]
     active = [r for r in usable if _active(r)]
-    visits = sorted({round(r["ts_epoch"]) for r in usable})
+    visits = visit_times(usable)
 
     gaps = [b - a for a, b in zip(visits, visits[1:])] if len(visits) > 1 else []
     typical_gap = median(gaps) / 60 if gaps else 0.0
@@ -147,22 +188,31 @@ def _verdict(
         return "not observed"
 
     target = _expected_at(actual, expected)
-    if opening and watched_from > target:
-        return (
-            f"cannot tell - monitoring only began at {_hhmm(watched_from)}, "
-            f"after the expected {expected}"
-        )
-    if not opening and watched_to < target:
+    delta = (actual - target).total_seconds() / 60
+
+    if opening:
+        if watched_from > target:
+            return (
+                f"cannot tell - monitoring only began at {_hhmm(watched_from)}, "
+                f"after the expected {expected}"
+            )
+        if abs(delta) <= config.SCHEDULE_TOLERANCE_MINUTES:
+            return "on time"
+        return f"{abs(delta):.0f} min {'late' if delta > 0 else 'early'}"
+
+    # Closing. Seeing activity after the expected close is a real finding, but
+    # it says the clinic had *not* closed - not that we watched it close. And
+    # seeing no activity late only means something if we were still watching.
+    if delta > config.SCHEDULE_TOLERANCE_MINUTES:
+        return f"still active {delta:.0f} min after the expected {expected}"
+    if watched_to < target:
         return (
             f"cannot tell - monitoring stopped at {_hhmm(watched_to)}, "
             f"before the expected {expected}"
         )
-
-    delta = (actual - target).total_seconds() / 60
     if abs(delta) <= config.SCHEDULE_TOLERANCE_MINUTES:
         return "on time"
-    direction = "late" if delta > 0 else "early"
-    return f"{abs(delta):.0f} min {direction}"
+    return f"quiet from {_hhmm(actual)}, {abs(delta):.0f} min before {expected}"
 
 
 # --------------------------------------------------------------------------- #
@@ -293,7 +343,7 @@ def camera_health(rows: Sequence[dict]) -> List[dict]:
     for camera, camera_rows in sorted(by_camera.items()):
         counts: Dict[str, int] = defaultdict(int)
         for row in camera_rows:
-            counts[row.get("health_status") or "unknown"] += 1
+            counts[effective_status(row) or "unknown"] += 1
         worst = max(counts, key=counts.get)
         try:
             status = HealthStatus(worst)
@@ -321,7 +371,7 @@ def build_report(clinic: str, day: str, rows: Sequence[dict]) -> str:
     occ = occupancy(rows)
     checkup = checkup_area(rows, hours)
     health = camera_health(rows)
-    checks = len({round(r["ts_epoch"]) for r in rows})
+    checks = len(visit_times(rows))
 
     out: List[str] = []
     add = out.append
@@ -340,9 +390,9 @@ def build_report(clinic: str, day: str, rows: Sequence[dict]) -> str:
         f"{_hhmm(hours['last_seen'])}**. Nothing outside that window was seen.\n")
     add("| | Observed | Expected | Verdict |")
     add("| --- | --- | --- | --- |")
-    add(f"| Opened | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
+    add(f"| Opened (first activity seen) | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
         f"{_verdict(hours['opened'], EXPECTED_OPEN, hours['first_seen'], hours['last_seen'], True)} |")
-    add(f"| Closed | {_hhmm(hours['closed'])} | {EXPECTED_CLOSE} | "
+    add(f"| Closed (last activity seen) | {_hhmm(hours['closed'])} | {EXPECTED_CLOSE} | "
         f"{_verdict(hours['closed'], EXPECTED_CLOSE, hours['first_seen'], hours['last_seen'], False)} |")
     if hours["lunch"]:
         start, end = hours["lunch"]
@@ -424,6 +474,53 @@ def build_report(clinic: str, day: str, rows: Sequence[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def clinic_slug(name: str) -> str:
+    """Folder-safe form of a clinic name."""
+    return "_".join("".join(c if c.isalnum() else " " for c in name).split()) or "clinic"
+
+
+def report_path(clinic: str, day: str) -> Path:
+    """Each clinic keeps its own folder, one file per day."""
+    return REPORT_DIR / clinic_slug(clinic) / f"{day}.md"
+
+
+def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[Path]:
+    """Build and save one clinic's report. None when there is no data."""
+    db = db or Database()
+    rows = db.get_observations(day, clinic)
+    if not rows:
+        return None
+    path = report_path(clinic, day)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_report(clinic, day, rows), encoding="utf-8")
+    return path
+
+
+def generate_all(day: str, db: Optional[Database] = None) -> List[Path]:
+    """Refresh every clinic that has observations for the day."""
+    db = db or Database()
+    written = []
+    for clinic in db.observed_clinics(day):
+        path = generate(clinic, day, db)
+        if path:
+            written.append(path)
+    return written
+
+
+def available_reports() -> Dict[str, List[str]]:
+    """{clinic folder name: [days, newest first]} from what is on disk."""
+    found: Dict[str, List[str]] = {}
+    if not REPORT_DIR.exists():
+        return found
+    for folder in sorted(REPORT_DIR.iterdir()):
+        if not folder.is_dir():
+            continue
+        days = sorted((f.stem for f in folder.glob("*.md")), reverse=True)
+        if days:
+            found[folder.name] = days
+    return found
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="daily clinic report")
     parser.add_argument("--day", default=datetime.now().strftime("%Y-%m-%d"),
@@ -453,20 +550,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("Run a patrol first:  patrol.bat 60")
         return 1
 
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     for clinic in clinics:
-        rows = db.get_observations(args.day, clinic)
-        if not rows:
+        path = generate(clinic, args.day, db)
+        if path is None:
             print(f"no data for {clinic} on {args.day}")
             continue
-        text = build_report(clinic, args.day, rows)
-        safe = "".join(c if c.isalnum() else "_" for c in clinic).strip("_")
-        path = REPORT_DIR / f"{args.day}_{safe}.md"
-        path.write_text(text, encoding="utf-8")
         if args.quiet:
             print(f"wrote {path}")
         else:
-            print(f"\n{text}\n{'-' * 72}\nsaved: {path}")
+            print(f"\n{path.read_text(encoding='utf-8')}\n{'-' * 72}\nsaved: {path}")
     return 0
 
 

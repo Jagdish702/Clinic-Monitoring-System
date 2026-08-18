@@ -58,12 +58,57 @@
   .empty-state{text-align:center;color:var(--muted);padding:70px 20px}
   footer{color:var(--muted);font-size:12px;text-align:center;padding:0 0 28px}
   a{color:inherit}
+
+  /* --- reports --- */
+  .btn{border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+       padding:7px 15px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn:disabled{opacity:.5;cursor:default}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:50;
+           display:none;padding:28px 16px;overflow:auto}
+  .overlay.open{display:block}
+  .sheet{max-width:1000px;margin:0 auto;background:var(--panel);
+         border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .sheet-head{display:flex;gap:12px;align-items:center;padding:14px 18px;
+              border-bottom:1px solid var(--line);background:var(--panel-2);
+              position:sticky;top:0;z-index:2;flex-wrap:wrap}
+  .sheet-head h2{margin:0;font-size:16px;font-weight:600}
+  .sheet-head .spacer{flex:1}
+  .sheet-body{padding:18px 22px 26px}
+  .clinic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+               gap:10px}
+  .clinic-card{text-align:left;border:1px solid var(--line);background:var(--panel-2);
+               border-radius:10px;padding:12px 14px;cursor:pointer;color:var(--text);
+               font-family:inherit;font-size:14px}
+  .clinic-card:hover{border-color:var(--accent)}
+  .clinic-card .nm{font-weight:600;display:block;margin-bottom:5px}
+  .clinic-card .st{font-size:12px;color:var(--muted)}
+  .clinic-card .st.ready{color:var(--low)}
+  .clinic-card .st.missing{color:var(--medium)}
+  .report h1{font-size:20px;margin:0 0 6px}
+  .report h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;
+             border-bottom:1px solid var(--line);color:var(--accent)}
+  .report h3{font-size:14px;margin:18px 0 8px}
+  .report p{margin:8px 0;line-height:1.6}
+  .report ul{margin:8px 0 8px 20px;line-height:1.7}
+  .report code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .table-wrap{overflow-x:auto;margin:10px 0}
+  .report table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
+  .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;
+                        vertical-align:top}
+  .report th{background:var(--panel-2);font-weight:600;color:var(--muted)}
+  .report strong{color:var(--text)}
+  .note{color:var(--muted);font-size:12px}
+  select{background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+         border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
 </style>
 </head>
 <body>
 <header>
   <div class="bar">
     <h1>Clinic Monitor <span>live alerts · newest first</span></h1>
+    <button class="btn primary" id="open-reports">All clinics · daily reports</button>
     <div class="tiles">
       <div class="tile high"><b id="c-high">{{ counts.High }}</b>High</div>
       <div class="tile medium"><b id="c-medium">{{ counts.Medium }}</b>Medium</div>
@@ -96,6 +141,24 @@
     No alerts match these filters yet.
   </div>
 </main>
+
+<!-- All clinics / daily reports -->
+<div class="overlay" id="reports-overlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <button class="btn" id="reports-back" hidden>&larr; All clinics</button>
+      <h2 id="reports-title">All clinics</h2>
+      <span class="spacer"></span>
+      <select id="report-day" title="Day to show"></select>
+      <button class="btn" id="reports-refresh" title="Rebuild reports from today's patrol data">Update reports</button>
+      <button class="btn" id="reports-close">Close</button>
+    </div>
+    <div class="sheet-body">
+      <div id="reports-list"></div>
+      <div id="report-view" class="report" hidden></div>
+    </div>
+  </div>
+</div>
 
 <footer>auto-refreshing every {{ refresh }}s · <span id="updated">—</span></footer>
 
@@ -173,6 +236,111 @@ async function refresh(){
 
 refresh();
 setInterval(refresh, REFRESH_MS);
+
+/* ---------------- All clinics / daily reports ---------------- */
+const overlay   = document.getElementById("reports-overlay");
+const listEl    = document.getElementById("reports-list");
+const viewEl    = document.getElementById("report-view");
+const titleEl   = document.getElementById("reports-title");
+const backBtn   = document.getElementById("reports-back");
+const daySel    = document.getElementById("report-day");
+const updateBtn = document.getElementById("reports-refresh");
+let currentDay = "";
+
+function showList(){
+  viewEl.hidden = true;
+  listEl.hidden = false;
+  backBtn.hidden = true;
+  titleEl.textContent = "All clinics";
+}
+
+async function loadClinics(day){
+  listEl.innerHTML = '<p class="note">loading…</p>';
+  showList();
+  const qs = day ? "?day=" + encodeURIComponent(day) : "";
+  const data = await (await fetch("/api/reports" + qs, {cache:"no-store"})).json();
+  currentDay = data.day;
+
+  // Day picker: whichever days have patrol data, newest first.
+  const days = data.days_with_data && data.days_with_data.length
+    ? data.days_with_data : [data.day];
+  if (!days.includes(data.day)) days.unshift(data.day);
+  daySel.innerHTML = days.map(d =>
+    `<option value="${d}" ${d === data.day ? "selected" : ""}>${d}</option>`).join("");
+
+  if (!data.clinics.length){
+    listEl.innerHTML = `<p class="note">No clinic data for ${esc(data.day)} yet.
+      Run a patrol first:<br><code>patrol.bat 60</code></p>`;
+    return;
+  }
+
+  listEl.innerHTML = `<p class="note">${data.clinics.length} clinic(s) ·
+      click one to read its report for ${esc(data.day)}</p>
+    <div class="clinic-grid">` +
+    data.clinics.map(c => `
+      <button class="clinic-card" data-slug="${esc(c.slug)}" data-name="${esc(c.name)}">
+        <span class="nm">${esc(c.name)}</span>
+        <span class="st ${c.has_report ? "ready" : "missing"}">
+          ${c.has_report ? "report ready" :
+            (c.observed_today ? "patrolled — press Update reports" : "no report for this day")}
+        </span>
+      </button>`).join("") + "</div>";
+
+  listEl.querySelectorAll(".clinic-card").forEach(card => {
+    card.onclick = () => openReport(card.dataset.slug, card.dataset.name);
+  });
+}
+
+async function openReport(slug, name){
+  listEl.hidden = true;
+  viewEl.hidden = false;
+  backBtn.hidden = false;
+  titleEl.textContent = name;
+  viewEl.innerHTML = '<p class="note">loading…</p>';
+
+  const res = await fetch(`/api/reports/${encodeURIComponent(slug)}?day=` +
+                          encodeURIComponent(currentDay), {cache:"no-store"});
+  if (!res.ok){
+    viewEl.innerHTML = `<p class="note">No report saved for <strong>${esc(name)}</strong>
+      on ${esc(currentDay)}.<br><br>If this clinic was patrolled today, press
+      <strong>Update reports</strong> to build it.</p>`;
+    return;
+  }
+  const data = await res.json();
+  viewEl.innerHTML = data.html +
+    `<p class="note" style="margin-top:22px">saved as
+      reports/${esc(slug)}/${esc(data.day)}.md · built ${esc(data.updated)}</p>`;
+}
+
+updateBtn.onclick = async () => {
+  updateBtn.disabled = true;
+  updateBtn.textContent = "Updating…";
+  try{
+    const res = await fetch("/api/reports/generate?day=" +
+                            encodeURIComponent(currentDay), {method:"POST"});
+    const data = await res.json();
+    updateBtn.textContent = data.ok
+      ? `Updated ${data.generated}` : "Failed";
+    await loadClinics(currentDay);
+  }catch(err){
+    updateBtn.textContent = "Failed";
+  }finally{
+    setTimeout(() => { updateBtn.textContent = "Update reports";
+                       updateBtn.disabled = false; }, 1600);
+  }
+};
+
+document.getElementById("open-reports").onclick = () => {
+  overlay.classList.add("open");
+  loadClinics(currentDay);
+};
+document.getElementById("reports-close").onclick = () => overlay.classList.remove("open");
+backBtn.onclick = showList;
+daySel.onchange = () => loadClinics(daySel.value);
+overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove("open"); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") overlay.classList.remove("open");
+});
 </script>
 </body>
 </html>

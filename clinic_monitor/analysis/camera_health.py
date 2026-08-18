@@ -211,12 +211,31 @@ def assess_sequence(frames: Sequence[np.ndarray]) -> CameraHealth:
 
     health.motion_between_frames = float(np.mean(diffs))
 
-    # A no-signal screen is also perfectly still; report the more specific
-    # cause rather than calling a blank channel "frozen".
-    if health.motion_between_frames < FROZEN_DIFF and health.status is HealthStatus.OK:
+    # A stalled stream outranks every single-frame verdict except no-signal.
+    #
+    # Measured on this deployment: working cameras change by 8-17 between
+    # frames, and even a dead channel's logo screen changes by ~0.1 because
+    # its clock overlay ticks. A reading of 0.000 is byte-identical frames,
+    # which no live sensor produces. One camera here scored exactly that and
+    # was being reported as "view blocked" purely because its still picture
+    # happened to be featureless - sending someone to look for an obstruction
+    # instead of restarting the channel.
+    #
+    # No-signal stays ahead of it: a blank channel is also motionless, and
+    # "no stream" is the more specific and more useful cause.
+    if (
+        health.motion_between_frames < FROZEN_DIFF
+        and health.status is not HealthStatus.NO_SIGNAL
+    ):
+        shadowed = (
+            f" (single frames also looked like: {health.status.label})"
+            if health.status is not HealthStatus.OK
+            else ""
+        )
         health.status = HealthStatus.FROZEN
         health.notes.append(
             f"frames identical over the visit (mean change "
-            f"{health.motion_between_frames:.2f}) - the stream is not updating"
+            f"{health.motion_between_frames:.3f}; a working camera here "
+            f"measures 8-17) - the stream is not updating{shadowed}"
         )
     return health

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Offline self-test - exercises the pipeline without a phone or an API key.
 
 Synthetic frames (a moving blob on a static background) are pushed through the

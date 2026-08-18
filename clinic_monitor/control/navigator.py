@@ -1,4 +1,4 @@
-﻿"""
+"""
 Drive the Hik-Connect app over ADB: launch it, find a clinic by name, open its
 live view, and read the exact on-screen position of every camera tile.
 

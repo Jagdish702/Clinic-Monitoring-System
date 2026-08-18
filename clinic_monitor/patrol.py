@@ -1,4 +1,4 @@
-﻿"""
+"""
 Continuous patrol: rotate through every clinic, one after another, forever.
 
     Clinic 1 -> analyse -> Clinic 2 -> analyse -> ... -> Clinic N -> back to 1

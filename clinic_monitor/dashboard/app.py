@@ -1,4 +1,4 @@
-﻿"""
+"""
 Stage 6 - dashboard.
 
 A small Flask app that lists alerts newest-first with severity / clinic

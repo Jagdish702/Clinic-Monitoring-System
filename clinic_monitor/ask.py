@@ -1,4 +1,4 @@
-﻿"""
+"""
 On-demand query: watch a clinic for a while and report what is happening.
 
 This is the request/response counterpart to ``main.py``. The monitoring loop is

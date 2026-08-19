@@ -82,6 +82,9 @@ ANDROID_SDK = os.getenv("ANDROID_HOME") or os.getenv("ANDROID_SDK_ROOT", "")
 # Empty means "use the only AVD installed", which is the common case.
 EMULATOR_AVD = os.getenv("CM_EMULATOR_AVD", "")
 EMULATOR_BOOT_TIMEOUT_SEC = float(os.getenv("CM_EMULATOR_BOOT_TIMEOUT", "240"))
+# Breathing room after boot before the app is launched. Starting a video app
+# into peak boot load is what makes it hang long enough to trigger an ANR.
+EMULATOR_SETTLE_SEC = float(os.getenv("CM_EMULATOR_SETTLE", "15"))
 # Headless: the emulator window is never looked at - every frame is read over
 # ADB - so drawing and compositing it is pure overhead. This is the single
 # biggest thing that reduces emulator lag, and it is what makes the setup

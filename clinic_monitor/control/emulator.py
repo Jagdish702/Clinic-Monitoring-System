@@ -182,6 +182,11 @@ def start(avd: Optional[str] = None, timeout: Optional[float] = None) -> str:
         serial = serial or running_serial()
         if serial and is_ready(serial):
             log.info("emulator %s is up and ready", serial)
+            # A just-booted emulator is still finishing background work, and
+            # launching a video app into that load is what makes it hang long
+            # enough for Android to raise an ANR dialog. A short pause here is
+            # far cheaper than recovering from one.
+            time.sleep(config.EMULATOR_SETTLE_SEC)
             wake(serial)
             return serial
         time.sleep(3.0)

@@ -33,6 +33,7 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _DUMP_PATH = "/sdcard/clinic_monitor_ui.xml"
 _BOUNDS_RE = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
 _FOCUS_RE = re.compile(r"mCurrentFocus=Window\{[^}]*\s(\S+)\}")
+_RESUMED_RE = re.compile(r"ResumedActivity: ActivityRecord\{[^}]*\s(\S+/\S+)")
 
 Region = Tuple[float, float, float, float]
 
@@ -169,7 +170,22 @@ class PhoneNavigator:
 
     # -- state ------------------------------------------------------------ #
     def current_focus(self) -> str:
+        """
+        Which app is in front.
+
+        ``mCurrentFocus`` is the usual answer, but it is not always emitted -
+        on a headless Android 12 emulator ``dumpsys window`` produced no such
+        line at all while Hik-Connect was demonstrably resumed and on screen.
+        Relying on it alone made every launch "time out" against a perfectly
+        healthy app.
+
+        The activity manager's resumed activity is the authoritative fallback:
+        it names the component that is actually in the foreground.
+        """
         match = _FOCUS_RE.search(self.shell("dumpsys", "window"))
+        if match:
+            return match.group(1)
+        match = _RESUMED_RE.search(self.shell("dumpsys", "activity", "activities"))
         return match.group(1) if match else ""
 
     def is_app_foreground(self) -> bool:
@@ -225,6 +241,70 @@ class PhoneNavigator:
         if "NotificationShade" in self.current_focus():
             self.back()
             time.sleep(0.8)
+
+    def dismiss_blocking_dialog(self) -> bool:
+        """
+        Close an "isn't responding" dialog that is holding window focus.
+
+        A freshly booted emulator is heavily loaded, and Hik-Connect can hang
+        long enough on startup for Android to raise an ANR dialog. That dialog
+        takes focus and keeps it - surviving even `am force-stop` - so every
+        launch afterwards times out with an empty focus and the whole patrol
+        fails on a device that is otherwise fine.
+
+        "Close app" is used rather than "Wait": a hung app rarely recovers,
+        and the caller relaunches it cleanly straight after.
+        """
+        try:
+            nodes = self.dump_nodes()
+        except NavigationError:
+            return False
+
+        # Detected from the dialog's own view ids, not from the focused window.
+        # The focus string is unreliable here: the same dialog reported itself
+        # as "systemui" once and as the app's own package the next time, so a
+        # focus-based check missed it entirely. aerr_close / aerr_wait are
+        # Android's ids for the not-responding dialog's buttons.
+        buttons = {
+            n.resource_id.split("/")[-1]: n
+            for n in nodes
+            if n.resource_id.split("/")[-1].startswith("aerr_")
+        }
+        has_text = any(
+            marker in node.label.lower()
+            for node in nodes
+            for marker in ("not responding", "n't responding", "has stopped",
+                           "keeps stopping")
+        )
+        if not buttons and not has_text:
+            return False
+
+        for key in ("aerr_close", "aerr_wait"):
+            if key in buttons:
+                button = buttons[key]
+                log.warning(
+                    "an app-not-responding dialog was blocking the screen - "
+                    "dismissing it with %r",
+                    button.label or key,
+                )
+                self.tap(*button.center)
+                time.sleep(2.5)
+                return True
+
+        for label in ("close app", "ok", "wait", "got it"):
+            button = next(
+                (n for n in nodes if n.label.strip().lower() == label), None
+            )
+            if button:
+                log.warning(
+                    "an app-not-responding dialog was blocking the screen - "
+                    "dismissing it with %r",
+                    button.label,
+                )
+                self.tap(*button.center)
+                time.sleep(2.5)
+                return True
+        return False
 
     def wake(self) -> None:
         """Turn the screen on. screencap returns black on a sleeping display."""
@@ -361,8 +441,13 @@ class PhoneNavigator:
                 time.sleep(2.0)  # let the list finish drawing
                 return
             # Something can slide over the app mid-launch - most often the
-            # notification shade, which then holds focus indefinitely.
+            # notification shade or an app-not-responding dialog, either of
+            # which then holds focus indefinitely.
             self.collapse_shade()
+            if self.dismiss_blocking_dialog():
+                self._run(
+                    ["shell", "am", "start", "-n", f"{self.package}/{activity}"]
+                )
             time.sleep(1.0)
         raise NavigationError(
             f"Hik-Connect did not come to the foreground within {timeout:.0f}s "
@@ -371,12 +456,18 @@ class PhoneNavigator:
 
     def ensure_device_list(self) -> None:
         """Get back to the device list from wherever we are."""
+        if self.dismiss_blocking_dialog():
+            # The app was closed by the dialog; it has to be started again.
+            self.launch()
         if not self.is_app_foreground():
             self.launch()
         for _ in range(4):
             nodes = self.dump_nodes()
             if self.shows_device_list(nodes):
                 return
+            if self.dismiss_blocking_dialog():
+                self.launch()
+                continue
             log.debug("not on the device list yet - pressing back")
             self.back()
             time.sleep(1.5)

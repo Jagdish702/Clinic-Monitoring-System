@@ -1,0 +1,23 @@
+# Line endings are not cosmetic here.
+#
+# A shell script or systemd unit checked out with CRLF fails on Linux with
+# errors that name the wrong cause ("/usr/bin/env: 'bash\r': No such file or
+# directory"). Pin them to LF regardless of the platform they are edited on.
+*.sh            text eol=lf
+*.service       text eol=lf
+
+# Windows launchers want CRLF.
+*.bat           text eol=crlf
+
+# Everything else: normalise in the repository, let git decide on checkout.
+*.py            text
+*.md            text
+*.json          text
+*.txt           text
+*.html          text
+
+# Never touched.
+*.pt            binary
+*.jpg           binary
+*.png           binary
+*.db            binary

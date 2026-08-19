@@ -1,0 +1,24 @@
+[Unit]
+Description=Clinic monitoring dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/clinic-monitoring/clinic_monitor
+EnvironmentFile=-/opt/clinic-monitoring/clinic_monitor/.env
+# Bind to localhost only. The dashboard has no authentication of its own and
+# shows clinic footage, so it must never be exposed directly - reach it over
+# an SSH tunnel, or put an authenticating proxy in front (see DEPLOY_GCP.md).
+Environment=CM_DASHBOARD_HOST=127.0.0.1
+
+ExecStart=/opt/clinic-monitoring/.venv/bin/python dashboard/app.py
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/opt/clinic-monitoring/clinic_monitor/logs/dashboard.log
+StandardError=append:/opt/clinic-monitoring/clinic_monitor/logs/dashboard.log
+
+[Install]
+WantedBy=multi-user.target

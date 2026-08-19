@@ -1,0 +1,34 @@
+[Unit]
+Description=Clinic monitoring patrol (Hik-Connect screen capture)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/clinic-monitoring/clinic_monitor
+EnvironmentFile=-/opt/clinic-monitoring/clinic_monitor/.env
+Environment=ANDROID_SDK_ROOT=/home/%i/android-sdk
+Environment=ANDROID_HOME=/home/%i/android-sdk
+Environment=CM_ADB_PATH=/home/%i/android-sdk/platform-tools/adb
+Environment=CM_EMULATOR_HEADLESS=true
+
+# 120s per clinic, unlimited rounds. The emulator is started by the patrol
+# itself, and reused if one is already up.
+ExecStart=/opt/clinic-monitoring/clinic_monitor/deploy/patrol.sh 120 0
+
+# The emulator can wedge in ways the patrol cannot recover from - a hung app
+# dialog it fails to dismiss, a stalled stream. Restarting is cheap and the
+# next round starts from a cold, clean boot.
+Restart=always
+RestartSec=30
+# Give up only if it fails repeatedly in a short window, so a genuine
+# misconfiguration is visible instead of looping forever.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+StandardOutput=append:/opt/clinic-monitoring/clinic_monitor/logs/patrol.log
+StandardError=append:/opt/clinic-monitoring/clinic_monitor/logs/patrol.log
+
+[Install]
+WantedBy=multi-user.target

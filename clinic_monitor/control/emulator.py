@@ -13,6 +13,7 @@ copy of the same AVD fails, so an existing one is always reused.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 import time
@@ -50,7 +51,10 @@ def _candidate_sdks() -> List[Path]:
 
 def emulator_binary() -> Path:
     """Locate emulator.exe / emulator, or explain where to look."""
-    name = "emulator.exe" if _NO_WINDOW else "emulator"
+    # Ask the OS directly. This used to key off CREATE_NO_WINDOW being present,
+    # which happens to be Windows-only - correct by accident, and confusing to
+    # anyone reading it on the Linux host this now also runs on.
+    name = "emulator.exe" if os.name == "nt" else "emulator"
     for sdk in _candidate_sdks():
         candidate = sdk / "emulator" / name
         if candidate.is_file():

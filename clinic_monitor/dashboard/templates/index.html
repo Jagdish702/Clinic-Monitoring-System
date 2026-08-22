@@ -102,6 +102,46 @@
   .note{color:var(--muted);font-size:12px}
   select{background:var(--panel-2);color:var(--text);border:1px solid var(--line);
          border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
+
+  /* --- phones ---
+     Three things break on a narrow screen: the evidence thumbnail keeps its
+     230px and leaves ~56px for the text beside it, the header grows to ~490px
+     (most of the screen before a single alert), and the clinic name pushes the
+     page into sideways scrolling. */
+  @media (max-width: 640px){
+    header{padding:10px 12px}
+    h1{font-size:15px}
+    h1 span{display:none}
+    .bar{gap:10px}
+    #open-reports{width:100%;order:3;padding:9px 15px}
+    .tiles{gap:6px;width:100%}
+    .tile{flex:1;padding:5px 8px;font-size:10px;text-align:center}
+    .tile b{font-size:15px}
+    /* One scrolling row of chips instead of three wrapped rows. */
+    .filters{flex-wrap:nowrap;overflow-x:auto;margin-top:10px;padding-bottom:4px;
+             scrollbar-width:none;-webkit-overflow-scrolling:touch}
+    .filters::-webkit-scrollbar{display:none}
+    .chip{flex:0 0 auto;padding:5px 11px;font-size:12px}
+    main{padding:12px}
+    /* Stack the card: full-width image above the text, not beside it. */
+    .event{flex-direction:column;gap:10px;padding:12px}
+    .shot{width:100%;min-width:0;height:180px}
+    .row1{gap:6px}
+    .where{font-size:14px;min-width:0;overflow-wrap:anywhere}
+    .when{margin-left:0;order:3;flex-basis:100%}
+    .desc{font-size:14px}
+    .reason{font-size:12px}
+    /* Reports fill the screen rather than floating in a card. */
+    .overlay{padding:0}
+    .sheet{border-radius:0;min-height:100vh}
+    .sheet-head{padding:10px 12px;gap:8px}
+    .sheet-head h2{font-size:15px}
+    .sheet-body{padding:12px}
+    .clinic-grid{grid-template-columns:1fr}
+    .report h1{font-size:17px}
+    .report h2{font-size:14px;margin:20px 0 8px}
+    .report p,.report ul{font-size:14px}
+  }
 </style>
 </head>
 <body>

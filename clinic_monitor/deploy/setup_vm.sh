@@ -53,8 +53,19 @@ if ! kvm-ok >/dev/null 2>&1; then
     echo "kvm-ok reports KVM is unavailable - check nested virtualisation" >&2
     exit 1
 fi
-sudo adduser "$USER" kvm >/dev/null 2>&1 || true
-echo "KVM available (you may need to log out and back in for group membership)"
+# Whoever will RUN the system needs the kvm group, and that is not always the
+# person installing: a VM reached through the Cloud Console logs in as a
+# different Linux user than one reached with `gcloud compute ssh`. Adding only
+# the installer leaves the other account unable to start the emulator, and the
+# failure is silent - the emulator exits immediately with nothing in the log.
+KVM_USERS="$USER ${CM_SERVICE_USER:-}"
+for u in $KVM_USERS; do
+    id "$u" >/dev/null 2>&1 || continue
+    sudo adduser "$u" kvm >/dev/null 2>&1 || true
+    echo "  added $u to the kvm group"
+done
+echo "KVM available (log out and back in for group membership to take effect,"
+echo "or use: sg kvm -c '<command>' to apply it immediately)"
 
 say "3. Android SDK"
 if [[ ! -x "$SDK_ROOT/platform-tools/adb" ]]; then

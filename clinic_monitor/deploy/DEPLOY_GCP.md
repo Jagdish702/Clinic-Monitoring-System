@@ -153,15 +153,28 @@ If `clinics` lists your sites, everything below is just scheduling.
 ## 7. Install the services
 
 ```bash
-sudo cp deploy/clinic-patrol.service deploy/clinic-dashboard.service \
+sudo cp deploy/clinic-patrol@.service deploy/clinic-dashboard@.service \
     /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "clinic-patrol@$USER" "clinic-dashboard@$USER"
 systemctl status "clinic-patrol@$USER"
 ```
 
-The units are templated on the username (`@$USER`) so the paths to the SDK in
-your home directory resolve.
+The units are templated on the username, so the paths to the SDK in that
+user's home directory resolve. **The `@` in the filename is required** - a unit
+using `%i` but named without it cannot be instantiated at all, and
+`systemctl enable clinic-patrol@someone` fails with "No such file or
+directory".
+
+If the emulator was set up under a different account than the one the service
+runs as (easy to do: the Cloud Console's SSH button logs in as a different
+Linux user than `gcloud compute ssh`), make sure that account owns the install
+and is in the `kvm` group:
+
+```bash
+sudo chown -R "$USER" /opt/clinic-monitoring
+sudo adduser "$USER" kvm
+```
 
 ### Reaching the dashboard safely
 
@@ -181,8 +194,23 @@ the native option - rather than opening the port.
 ## 8. Keep it honest with the watchdog
 
 ```bash
-crontab -e
-# */15 * * * * /opt/clinic-monitoring/clinic_monitor/deploy/watchdog.sh
+sudo tee /etc/cron.d/clinic-watchdog >/dev/null <<'EOF'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/15 * * * * root /opt/clinic-monitoring/clinic_monitor/deploy/watchdog.sh
+EOF
+sudo chmod 644 /etc/cron.d/clinic-watchdog
+```
+
+Run as **root** via `/etc/cron.d` rather than a user crontab: it needs to
+restart a systemd unit, and this keeps it working regardless of whether the
+service user has sudo.
+
+Verify it actually fires - a watchdog you have not tested is an assumption:
+
+```bash
+sudo CM_WATCHDOG_STALE_MINUTES=0 bash deploy/watchdog.sh   # forces a restart
+sudo tail -5 clinic_monitor/logs/watchdog.log
 ```
 
 It does not ask "is the process alive" - it usually is. It asks **"has anything

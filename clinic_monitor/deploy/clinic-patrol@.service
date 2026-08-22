@@ -2,6 +2,12 @@
 Description=Clinic monitoring patrol (Hik-Connect screen capture)
 After=network-online.target
 Wants=network-online.target
+# Give up only if it fails repeatedly in a short window, so a genuine
+# misconfiguration is visible instead of looping forever. These two belong in
+# [Unit], not [Service] - systemd ignores them there with a warning, which
+# silently disables the guard.
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -12,6 +18,9 @@ Environment=ANDROID_SDK_ROOT=/home/%i/android-sdk
 Environment=ANDROID_HOME=/home/%i/android-sdk
 Environment=CM_ADB_PATH=/home/%i/android-sdk/platform-tools/adb
 Environment=CM_EMULATOR_HEADLESS=true
+Environment=CM_EMULATOR_AVD=clinic
+# systemd does not read ~/.profile, so anything the emulator needs must be
+# named here.
 
 # 120s per clinic, unlimited rounds. The emulator is started by the patrol
 # itself, and reused if one is already up.
@@ -22,10 +31,6 @@ ExecStart=/opt/clinic-monitoring/clinic_monitor/deploy/patrol.sh 120 0
 # next round starts from a cold, clean boot.
 Restart=always
 RestartSec=30
-# Give up only if it fails repeatedly in a short window, so a genuine
-# misconfiguration is visible instead of looping forever.
-StartLimitIntervalSec=600
-StartLimitBurst=5
 
 StandardOutput=append:/opt/clinic-monitoring/clinic_monitor/logs/patrol.log
 StandardError=append:/opt/clinic-monitoring/clinic_monitor/logs/patrol.log

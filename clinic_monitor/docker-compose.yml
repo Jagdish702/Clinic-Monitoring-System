@@ -1,0 +1,66 @@
+# Docker Compose for Clinic Monitoring System
+
+services:
+  clinic-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clinic-monitor
+    restart: unless-stopped
+    
+    # Environment: use .env for secrets and config
+    env_file:
+      - .env
+    environment:
+      CM_DASHBOARD_HOST: "0.0.0.0"
+      CM_DASHBOARD_PORT: "8000"
+      PYTHONUNBUFFERED: "1"
+    
+    # Volume mounts: persistent storage and configuration
+    volumes:
+      # Application data
+      - ./logs:/app/logs
+      - ./screenshots:/app/screenshots
+      - ./storage:/app/storage
+      - ./reports:/app/reports
+      # Configuration files
+      - ./clinics.json:/app/clinics.json:ro
+      - ./.env:/app/.env:ro
+    
+    # Port mapping: dashboard only (ADB is not exposed; runs locally)
+    ports:
+      - "8000:8000"
+    
+    # Resource limits (adjust based on your hardware)
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "1"
+          memory: "1G"
+    
+    # Device access (required for ADB if running on host Docker)
+    # Uncomment if you need to mount /dev/adb or run ADB inside container
+    # devices:
+    #   - /dev/adb:/dev/adb
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  app_data:
+    driver: local

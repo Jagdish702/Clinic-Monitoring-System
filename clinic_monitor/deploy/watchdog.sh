@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Notice when the patrol has stopped producing data, and restart it.
 #
-# Run from cron every 15 minutes:
-#   */15 * * * * /opt/clinic-monitoring/clinic_monitor/deploy/watchdog.sh
+# Installed as /etc/cron.d/clinic-watchdog, running as root every 15 minutes:
+#   */15 * * * * root /opt/clinic-monitoring/clinic_monitor/deploy/watchdog.sh
 #
 # Why this exists: on a server nobody is watching the screen. The patrol
 # recovers from most faults itself, but an emulator can wedge in ways it
@@ -15,8 +15,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="$(dirname "$HERE")"
 PY="$ROOT/.venv/bin/python"
 DB="$HERE/storage/events.db"
-STALE_MINUTES="${CM_WATCHDOG_STALE_MINUTES:-45}"
 LOG="$HERE/logs/watchdog.log"
+STALE_MINUTES="${CM_WATCHDOG_STALE_MINUTES:-45}"
+
+# The systemd units are templated on the username. Deriving it from the owner
+# of the install is deliberate: cron sets no $USER, so building the unit name
+# from $USER produced "clinic-patrol@" and the restart silently never
+# happened - a watchdog that never fires is worse than none, because it looks
+# like coverage.
+SVC_USER="${CM_SERVICE_USER:-$(stat -c %U "$HERE")}"
+# root's cron also has none of the emulator environment.
+export CM_ADB_PATH="${CM_ADB_PATH:-/home/$SVC_USER/android-sdk/platform-tools/adb}"
 
 log() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"; }
 
@@ -57,9 +66,9 @@ sleep 10
 pkill -f "emulator.*-avd" 2>/dev/null || true
 sleep 5
 
-if systemctl is-enabled --quiet "clinic-patrol@$USER" 2>/dev/null; then
-    sudo systemctl restart "clinic-patrol@$USER"
-    log "restarted clinic-patrol@$USER"
+if systemctl is-enabled --quiet "clinic-patrol@$SVC_USER" 2>/dev/null; then
+    systemctl restart "clinic-patrol@$SVC_USER"
+    log "restarted clinic-patrol@$SVC_USER"
 else
-    log "clinic-patrol service not installed - restart the patrol by hand"
+    log "clinic-patrol@$SVC_USER is not installed - restart the patrol by hand"
 fi

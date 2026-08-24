@@ -90,6 +90,14 @@ def is_ignored_camera(name: str) -> bool:
     """True for a channel that should be treated as if it did not exist."""
     return name.strip() in IGNORED_CAMERAS
 
+
+# How many clinics may read as entirely frozen, one after another, before we
+# stop believing it. Separate sites do not fail in lockstep; a run like that
+# means our own screen stopped being redrawn. Two in a row restarts the app,
+# four restarts the emulator under it.
+STALL_RESTART_APP = int(os.getenv("CM_STALL_RESTART_APP", "2"))
+STALL_RESTART_EMULATOR = int(os.getenv("CM_STALL_RESTART_EMULATOR", "4"))
+
 # --------------------------------------------------------------------------- #
 # Android emulator - an alternative to a physically connected phone
 # --------------------------------------------------------------------------- #

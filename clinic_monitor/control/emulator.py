@@ -235,6 +235,36 @@ def ensure_running(avd: Optional[str] = None) -> str:
     return start(avd)
 
 
+def stop(serial: Optional[str] = None, timeout: float = 60.0) -> None:
+    """
+    Shut the emulator down and wait for it to actually go.
+
+    ``adb emu kill`` is the polite route; a wedged emulator can ignore it, so
+    the process is killed outright if the serial is still listed afterwards.
+    Starting a second copy of an AVD that has not finished dying fails with a
+    lock-file error, which is why this waits rather than returning at once.
+    """
+    serial = serial or running_serial()
+    if not serial:
+        return
+    log.info("stopping emulator %s", serial)
+    try:
+        _adb("-s", serial, "emu", "kill", timeout=20.0)
+    except Exception as exc:                     # pragma: no cover - best effort
+        log.debug("emu kill failed: %s", exc)
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if running_serial() != serial:
+            return
+        time.sleep(2.0)
+
+    log.warning("emulator %s ignored emu kill - killing the process", serial)
+    subprocess.run(["pkill", "-f", f"qemu-system.*{serial.split('-')[-1]}"],
+                   capture_output=True)
+    time.sleep(5.0)
+
+
 def avd_config_path(avd: str) -> Path:
     return Path.home() / ".android" / "avd" / f"{avd}.avd" / "config.ini"
 

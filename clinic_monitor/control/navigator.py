@@ -85,6 +85,17 @@ class PhoneNavigator:
         self._base = [self.adb_path] + (["-s", serial] if serial else [])
         self._package_checked = package is not None
 
+    def use_serial(self, serial: Optional[str]) -> None:
+        """
+        Point this navigator at a different device.
+
+        The adb command prefix is built once in ``__init__``, so assigning
+        ``serial`` on its own would leave every later command talking to the
+        old, dead emulator.
+        """
+        self.serial = serial
+        self._base = [self.adb_path] + (["-s", serial] if serial else [])
+
     def resolve_package(self) -> str:
         """
         Make sure ``self.package`` is a build that is actually installed.
@@ -454,6 +465,23 @@ class PhoneNavigator:
             f"(focus is {self.current_focus()!r})"
         )
 
+    def restart_app(self) -> None:
+        """
+        Kill Hik-Connect and start it again from cold.
+
+        ``am start`` on a process that is already running only brings the
+        existing task to the front, tab and back stack intact. When the app has
+        settled on some screen with no device rows on it, relaunching therefore
+        returns to that same screen for ever - the patrol skipped every clinic
+        for an hour at a time this way, printing "could not get back to the
+        device list" while the app sat happily on the wrong tab. Force-stopping
+        first is what actually resets it.
+        """
+        log.warning("restarting %s from cold", self.package)
+        self._run(["shell", "am", "force-stop", self.package])
+        time.sleep(2.0)
+        self.launch()
+
     def ensure_device_list(self) -> None:
         """Get back to the device list from wherever we are."""
         if self.dismiss_blocking_dialog():
@@ -473,10 +501,15 @@ class PhoneNavigator:
             time.sleep(1.5)
         # Re-launching is more reliable than pressing back forever.
         self.launch()
+        if self.shows_device_list(self.dump_nodes()):
+            return
+        # Still lost: the task itself is on the wrong screen, which no amount
+        # of back or am start will undo.
+        self.restart_app()
         if not self.shows_device_list(self.dump_nodes()):
             raise NavigationError(
-                "could not get back to the Hik-Connect device list "
-                f"(focus is {self.current_focus()!r})"
+                "could not get back to the Hik-Connect device list, even after "
+                f"restarting the app (focus is {self.current_focus()!r})"
             )
 
     # -- finding a clinic -------------------------------------------------- #

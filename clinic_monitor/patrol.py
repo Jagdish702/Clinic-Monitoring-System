@@ -191,6 +191,16 @@ def _save(event_logger: Optional[EventLogger], row: dict) -> None:
         log.error("could not record observation: %s", exc)
 
 
+def _all_frozen(observations: Dict[str, CameraObservation]) -> bool:
+    """True when every camera watched in this visit read as a stalled stream."""
+    verdicts = [
+        assess_sequence(obs.samples).status
+        for obs in observations.values()
+        if obs.samples
+    ]
+    return bool(verdicts) and all(v is HealthStatus.FROZEN for v in verdicts)
+
+
 def visit(
     navigator: PhoneNavigator,
     name: str,
@@ -202,8 +212,14 @@ def visit(
     stats: PatrolStats,
     all_cameras: bool,
     question: str,
-) -> None:
-    """Navigate to one clinic, watch it, describe and log what was seen."""
+) -> bool:
+    """
+    Navigate to one clinic, watch it, describe and log what was seen.
+
+    Returns True when every camera still read as frozen after a second look -
+    the caller counts those across clinics to tell a stalled screen on our side
+    from cameras that are genuinely down.
+    """
     stamp = datetime.now().strftime("%H:%M:%S")
     print(f"\n[{stamp}] {name}")
 
@@ -216,7 +232,30 @@ def visit(
 
     if not observations:
         print("    no frames captured")
-        return
+        return False
+
+    # Every camera of a clinic freezing at the same instant is not a clinic
+    # fault. Ten sites in ten villages froze and recovered in lockstep for
+    # ninety minutes at a time here, which only happens when the screen we are
+    # photographing stops being redrawn - the emulator stalling, not the NVRs.
+    # So look once more before blaming anyone: re-open the live view and watch
+    # again briefly. A real dead feed is still dead the second time.
+    frozen_visit = False
+    if _all_frozen(observations):
+        print("    every camera frozen - looking again before calling it a fault")
+        try:
+            regions = navigator.open_live_view(name)
+            clinic = build_clinic(name, regions, adb_serial=navigator.serial)
+            second = watch(clinic, min(duration, 20.0), interval, detector=detector)
+        except (NavigationError, CaptureError) as exc:
+            log.warning("re-check of %s failed: %s", name, exc)
+            second = {}
+        if second and not _all_frozen(second):
+            print("    second look is live - the first was our own stall")
+            observations = second
+        else:
+            frozen_visit = True
+            print("    still frozen on the second look")
 
     # Every camera of one visit is filed under a single timestamp so the
     # dashboard groups them together. Using each camera's own best-frame time
@@ -297,6 +336,8 @@ def visit(
             event_logger, clinic.name, camera, obs, health, visit_at, analysis
         )
         stats.events += 1
+
+    return frozen_visit
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -411,6 +452,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     event_logger = None if args.no_log else EventLogger(db=Database())
     stats = PatrolStats()
 
+    stuck = 0                 # clinics that read all-frozen back to back
     while not stop["now"]:
         stats.rounds += 1
         print(f"\n{'=' * 72}\nROUND {stats.rounds}  -  {datetime.now():%Y-%m-%d %H:%M:%S}"
@@ -420,10 +462,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             if stop["now"]:
                 break
             try:
-                visit(
+                if visit(
                     navigator, name, args.duration, args.interval, detector,
                     analyzer, event_logger, stats, args.all_cameras, args.question,
-                )
+                ):
+                    stuck += 1
+                else:
+                    stuck = 0
             except NavigationError as exc:
                 # Offline clinics come back later, so never drop them from the
                 # rotation - just note it and move on. visit() has already
@@ -457,6 +502,29 @@ def main(argv: Optional[List[str]] = None) -> int:
                                        event_logger.db if event_logger else None)
                 except Exception as exc:
                     log.debug("report refresh failed for %s: %s", name, exc)
+
+            # Separate clinics freezing one after another is not a coincidence:
+            # it is our own screen that has stopped being redrawn. Left alone
+            # this used to persist for an hour and a half, filing every clinic
+            # in the rotation as a camera fault. Restart the app, and if that
+            # does not clear it, the emulator underneath.
+            if stuck >= config.STALL_RESTART_APP:
+                print(f"\n{stuck} clinics frozen in a row - this is our screen, "
+                      f"not theirs. Restarting the app.")
+                try:
+                    if stuck >= config.STALL_RESTART_EMULATOR and args.emulator is not None:
+                        print("    the app restart did not help - restarting the "
+                              "emulator")
+                        emulator.stop()
+                        navigator.use_serial(
+                            emulator.ensure_running(args.emulator or None)
+                        )
+                        navigator.launch()
+                    else:
+                        navigator.restart_app()
+                    stuck = 0
+                except (EmulatorError, NavigationError) as exc:
+                    log.error("could not recover from the stall: %s", exc)
 
             if args.pause and not stop["now"]:
                 time.sleep(args.pause)

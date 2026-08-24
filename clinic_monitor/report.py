@@ -98,6 +98,32 @@ def _usable(row: dict) -> bool:
     )
 
 
+def blind_gap(visits: Sequence[float], start: float, end: float) -> float:
+    """
+    The longest stretch inside ``[start, end]`` with no usable check at all.
+
+    A period can only be called quiet if somebody was looking at it. Frozen
+    feeds and stalled patrol laps both leave holes, and without measuring them
+    a hole reads exactly like an empty clinic - which is how "opened 133 min
+    late" gets printed about a clinic that opened on time behind a frozen
+    camera.
+    """
+    if end <= start:
+        return 0.0
+    marks = [start] + sorted(v for v in visits if start < v < end) + [end]
+    return max(b - a for a, b in zip(marks, marks[1:]))
+
+
+def _blind_limit(typical_gap_min: float) -> float:
+    """
+    How long a hole has to be before it stops counting as coverage, in seconds.
+
+    Two laps' worth, and never less than 45 minutes: one missed lap is normal
+    jitter, two in a row means we genuinely stopped watching.
+    """
+    return max(2.0 * typical_gap_min * 60.0, 45.0 * 60.0)
+
+
 def visit_times(rows: Sequence[dict], gap_seconds: float = 180.0) -> List[float]:
     """
     Collapse per-camera rows into the patrol visits they came from.
@@ -135,17 +161,23 @@ def operating_hours(
     usable = [r for r in rows if _usable(r)]
     scope = [r for r in usable if r["camera_name"] in indoor] if indoor else []
     used_indoor = bool(scope)
-    active = [r for r in (scope or usable) if _active(r)]
-    visits = visit_times(usable)
+    watched = scope or usable
+    active = [r for r in watched if _active(r)]
+    # Coverage is measured on the same cameras the times come from. Counting a
+    # working outdoor camera as coverage of an indoor one would paper over
+    # exactly the holes this is meant to find.
+    visits = visit_times(watched)
 
     gaps = [b - a for a, b in zip(visits, visits[1:])] if len(visits) > 1 else []
     typical_gap = median(gaps) / 60 if gaps else 0.0
+    limit = _blind_limit(typical_gap)
 
     if not active:
         return {
             "opened": None, "closed": None, "lunch": None,
             "resolution_min": typical_gap, "first_seen": None, "last_seen": None,
             "used_indoor": used_indoor, "basis": sorted(indoor) if indoor else [],
+            "visits": visits, "blind_limit": limit, "worst_blind": None,
             "note": "no activity was observed all day",
         }
 
@@ -153,25 +185,42 @@ def operating_hours(
     closed = _time(active[-1])
 
     # Lunch: the longest quiet stretch between two active observations that
-    # falls inside the middle of the day.
+    # falls inside the middle of the day - and that the patrol actually
+    # watched. A stretch with no checks in it is missing data, not a lunch
+    # break, and reporting it as one invents a closure that never happened.
     lunch: Optional[Tuple[datetime, datetime]] = None
     longest = timedelta(0)
     for previous, following in zip(active, active[1:]):
-        gap_start, gap_end = _time(previous), _time(following)
-        gap = gap_end - gap_start
-        midday = 11 <= gap_start.hour <= 16
-        if midday and gap > longest and gap >= timedelta(minutes=LUNCH_MIN_MINUTES):
-            longest, lunch = gap, (gap_start, gap_end)
+        gap = _time(following) - _time(previous)
+        midday = 11 <= _time(previous).hour <= 16
+        if not (midday and gap > longest and gap >= timedelta(minutes=LUNCH_MIN_MINUTES)):
+            continue
+        if blind_gap(visits, previous["ts_epoch"], following["ts_epoch"]) > limit:
+            continue
+        longest, lunch = gap, (_time(previous), _time(following))
+
+    # The worst hole of the day, reported so a thin day cannot be mistaken for
+    # a thorough one.
+    worst = max(
+        (
+            (b - a, datetime.fromtimestamp(a), datetime.fromtimestamp(b))
+            for a, b in zip(visits, visits[1:])
+        ),
+        default=None,
+    )
 
     return {
         "opened": opened,
         "closed": closed,
         "lunch": lunch,
         "resolution_min": typical_gap,
-        "first_seen": _time(usable[0]),
-        "last_seen": _time(usable[-1]),
+        "first_seen": _time(watched[0]),
+        "last_seen": _time(watched[-1]),
         "used_indoor": used_indoor,
         "basis": sorted(indoor) if indoor else [],
+        "visits": visits,
+        "blind_limit": limit,
+        "worst_blind": worst,
         "note": "",
     }
 
@@ -187,6 +236,8 @@ def _verdict(
     watched_from: Optional[datetime],
     watched_to: Optional[datetime],
     opening: bool,
+    visits: Sequence[float] = (),
+    blind_limit: float = 45.0 * 60.0,
 ) -> str:
     """
     Judge opening/closing against the schedule - but only when the monitoring
@@ -195,12 +246,19 @@ def _verdict(
     Without this guard a patrol started at 16:00 reports "opened 7 hours late",
     which says nothing about the clinic and everything about when we happened
     to be watching. Coverage gaps must read as unknown, not as a finding.
+
+    Starting before the expected time is not enough on its own. A camera can
+    freeze at 07:11 and come back at 09:41 having missed the whole opening, and
+    the first activity then lands two hours late through no fault of the
+    clinic. So the window between the expected time and the activity has to
+    have been watched, not merely bracketed.
     """
     if actual is None or watched_from is None or watched_to is None:
         return "not observed"
 
     target = _expected_at(actual, expected)
     delta = (actual - target).total_seconds() / 60
+    tolerance = config.SCHEDULE_TOLERANCE_MINUTES
 
     if opening:
         if watched_from > target:
@@ -208,22 +266,44 @@ def _verdict(
                 f"cannot tell - monitoring only began at {_hhmm(watched_from)}, "
                 f"after the expected {expected}"
             )
-        if abs(delta) <= config.SCHEDULE_TOLERANCE_MINUTES:
+        if delta > tolerance and visits:
+            hole = blind_gap(
+                visits,
+                (target - timedelta(minutes=tolerance)).timestamp(),
+                actual.timestamp(),
+            )
+            if hole > blind_limit:
+                return (
+                    f"cannot tell - nothing usable was seen for {hole / 60:.0f} min "
+                    f"around the expected {expected}"
+                )
+        if abs(delta) <= tolerance:
             return "on time"
         return f"{abs(delta):.0f} min {'late' if delta > 0 else 'early'}"
 
     # Closing. Seeing activity after the expected close is a real finding, but
     # it says the clinic had *not* closed - not that we watched it close. And
     # seeing no activity late only means something if we were still watching.
-    if delta > config.SCHEDULE_TOLERANCE_MINUTES:
+    if delta > tolerance:
         return f"still active {delta:.0f} min after the expected {expected}"
     if watched_to < target:
         return (
             f"cannot tell - monitoring stopped at {_hhmm(watched_to)}, "
             f"before the expected {expected}"
         )
-    if abs(delta) <= config.SCHEDULE_TOLERANCE_MINUTES:
+    if abs(delta) <= tolerance:
         return "on time"
+    if visits:
+        hole = blind_gap(
+            visits,
+            actual.timestamp(),
+            (target + timedelta(minutes=tolerance)).timestamp(),
+        )
+        if hole > blind_limit:
+            return (
+                f"cannot tell - nothing usable was seen for {hole / 60:.0f} min "
+                f"before the expected {expected}"
+            )
     return f"quiet from {_hhmm(actual)}, {abs(delta):.0f} min before {expected}"
 
 
@@ -413,10 +493,11 @@ def build_report(
             "passers-by outside._\n")
     add("| | Observed | Expected | Verdict |")
     add("| --- | --- | --- | --- |")
+    seen = (hours.get("visits") or (), hours.get("blind_limit") or 45.0 * 60.0)
     add(f"| Opened (first activity seen) | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
-        f"{_verdict(hours['opened'], EXPECTED_OPEN, hours['first_seen'], hours['last_seen'], True)} |")
+        f"{_verdict(hours['opened'], EXPECTED_OPEN, hours['first_seen'], hours['last_seen'], True, *seen)} |")
     add(f"| Closed (last activity seen) | {_hhmm(hours['closed'])} | {EXPECTED_CLOSE} | "
-        f"{_verdict(hours['closed'], EXPECTED_CLOSE, hours['first_seen'], hours['last_seen'], False)} |")
+        f"{_verdict(hours['closed'], EXPECTED_CLOSE, hours['first_seen'], hours['last_seen'], False, *seen)} |")
     if hours["lunch"]:
         start, end = hours["lunch"]
         add(f"| Lunch | {_hhmm(start)} - {_hhmm(end)} | "
@@ -424,7 +505,15 @@ def build_report(
             f"{(end - start).total_seconds() / 60:.0f} min quiet |")
     else:
         add(f"| Lunch | not identified | {EXPECTED_LUNCH[0]} - {EXPECTED_LUNCH[1]} "
-            f"| no midday gap over {LUNCH_MIN_MINUTES} min |")
+            f"| no watched midday gap over {LUNCH_MIN_MINUTES} min |")
+
+    worst = hours.get("worst_blind")
+    if worst and worst[0] > hours.get("blind_limit", 45.0 * 60.0):
+        add(f"\n> **Coverage gap:** nothing usable was seen for "
+            f"**{worst[0] / 60:.0f} minutes** between {_hhmm(worst[1])} and "
+            f"{_hhmm(worst[2])} - the camera was frozen, offline, or the patrol "
+            f"did not reach this clinic. Anything that happened in that window "
+            f"is simply unknown, and the times above cannot account for it.\n")
 
     if hours["opened"]:
         gap = (

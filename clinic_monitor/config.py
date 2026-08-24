@@ -208,8 +208,8 @@ SAVE_SCREENSHOTS = _env_bool("CM_SAVE_SCREENSHOTS", True)
 # compared against these; they are not used for anything else.
 EXPECTED_OPEN = os.getenv("CM_EXPECTED_OPEN", "07:30")
 EXPECTED_CLOSE = os.getenv("CM_EXPECTED_CLOSE", "19:30")
-EXPECTED_LUNCH_START = os.getenv("CM_EXPECTED_LUNCH_START", "13:00")
-EXPECTED_LUNCH_END = os.getenv("CM_EXPECTED_LUNCH_END", "14:00")
+EXPECTED_LUNCH_START = os.getenv("CM_EXPECTED_LUNCH_START", "13:30")
+EXPECTED_LUNCH_END = os.getenv("CM_EXPECTED_LUNCH_END", "14:30")
 SCHEDULE_TOLERANCE_MINUTES = int(os.getenv("CM_SCHEDULE_TOLERANCE", "30"))
 # People visible at once before the checkup area counts as unusually crowded.
 CROWDING_PERSONS = int(os.getenv("CM_CROWDING_PERSONS", "6"))

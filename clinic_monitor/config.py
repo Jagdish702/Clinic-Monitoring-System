@@ -73,6 +73,23 @@ LAYOUT_SEAM_MIN_COVERAGE = 0.85 # fraction of the seam that must satisfy both
 # cannot be known from pixels alone.
 LAYOUT_SINGLE_VIEW_NAME = "Full view"
 
+# Channels to leave alone entirely.
+#
+# Cameras 03 and 04 report no signal at every clinic - 96 of 98 checks - which
+# is an NVR-side configuration problem, not something monitoring can see past.
+# Watching them only produces noise, so they are skipped at capture time and
+# hidden from everything that reads history back.
+IGNORED_CAMERAS = frozenset(
+    name.strip()
+    for name in os.getenv("CM_IGNORED_CAMERAS", "Camera 03,Camera 04").split(",")
+    if name.strip()
+)
+
+
+def is_ignored_camera(name: str) -> bool:
+    """True for a channel that should be treated as if it did not exist."""
+    return name.strip() in IGNORED_CAMERAS
+
 # --------------------------------------------------------------------------- #
 # Android emulator - an alternative to a physically connected phone
 # --------------------------------------------------------------------------- #

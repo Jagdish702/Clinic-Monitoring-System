@@ -141,6 +141,11 @@ def camera_regions(
     laid out left-to-right, top-to-bottom over the clinic's ``video_region``.
     When ``grid`` differs from the configured one - i.e. the app is showing a
     layout we have no names for - positional names are used instead.
+
+    Ignored channels are dropped at the end rather than skipped in the loop,
+    so a camera without an explicit region still lands in the tile it really
+    occupies on screen. Dropping it early would slide every camera after it
+    up by one slot and silently mislabel the whole grid.
     """
     rows, cols = grid or clinic.grid
     rows = max(1, rows)
@@ -153,8 +158,12 @@ def camera_regions(
         r, c = divmod(slot, cols)
         return (vx + c * cell_w, vy + r * cell_h, cell_w, cell_h)
 
+    def keep(pairs):
+        return [(name, region) for name, region in pairs
+                if not config.is_ignored_camera(name)]
+
     if tuple(grid or clinic.grid) != tuple(clinic.grid):
-        return list(zip(_fallback_names(rows * cols), map(cell, range(rows * cols))))
+        return keep(zip(_fallback_names(rows * cols), map(cell, range(rows * cols))))
 
     resolved: List[Tuple[str, Tuple[float, float, float, float]]] = []
     slot = 0
@@ -173,7 +182,7 @@ def camera_regions(
             continue
         resolved.append((cam.name, cell(slot)))
         slot += 1
-    return resolved
+    return keep(resolved)
 
 
 def split_frame(

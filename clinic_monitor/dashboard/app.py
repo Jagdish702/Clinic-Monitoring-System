@@ -24,7 +24,7 @@ import config  # noqa: E402
 import report as reporting  # noqa: E402
 from analysis.camera_role import infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
-from storage.database import Database  # noqa: E402
+from storage.database import Database, ignored_clause  # noqa: E402
 
 SEVERITIES = ("High", "Medium", "Low")
 
@@ -203,6 +203,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         summary = database.clinic_status_summary(day)
 
         # Cameras that were faulty on every check of the day.
+        hide, hide_params = ignored_clause()
         rows = database.conn.execute(
             "SELECT clinic_name, camera_name,"
             " COUNT(*) AS checks,"
@@ -210,9 +211,10 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             "     THEN 1 ELSE 0 END) AS bad,"
             " MIN(timestamp) AS first_seen, MAX(timestamp) AS last_seen"
             " FROM observations WHERE day = ?"
-            " GROUP BY clinic_name, camera_name"
+            + (f" AND {hide}" if hide else "")
+            + " GROUP BY clinic_name, camera_name"
             " HAVING bad > 0 ORDER BY clinic_name, camera_name",
-            (day,),
+            (day, *hide_params),
         ).fetchall()
         cameras = [
             {

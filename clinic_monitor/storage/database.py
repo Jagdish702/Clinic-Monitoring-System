@@ -21,6 +21,22 @@ import config
 
 log = logging.getLogger(__name__)
 
+
+def ignored_clause(column: str = "camera_name") -> tuple:
+    """
+    SQL that hides the channels config says to ignore, plus its parameters.
+
+    Applied on the way out rather than on the way in: the rows written before
+    a camera was ignored stay on disk, so the list can be changed back without
+    losing history.
+    """
+    ignored = sorted(config.IGNORED_CAMERAS)
+    if not ignored:
+        return "", []
+    placeholders = ", ".join("?" for _ in ignored)
+    return f"{column} NOT IN ({placeholders})", list(ignored)
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,6 +214,10 @@ class Database:
         if clinic_name and clinic_name.lower() != "all":
             sql += " AND clinic_name = ?"
             params.append(clinic_name)
+        hide, hide_params = ignored_clause()
+        if hide:
+            sql += f" AND {hide}"
+            params.extend(hide_params)
         sql += " ORDER BY ts_epoch ASC"
         return [dict(row) for row in self.conn.execute(sql, params)]
 
@@ -312,26 +332,33 @@ class Database:
         or outdoors. Drawn from all history, not one day, because a camera's
         role does not change and more samples make the inference safer.
         """
+        hide, hide_params = ignored_clause()
         rows = self.conn.execute(
             "SELECT clinic_name, camera_name, description FROM events "
             "WHERE description IS NOT NULL AND description != '' "
-            "ORDER BY ts_epoch DESC LIMIT ?",
-            (int(limit),),
+            + (f"AND {hide} " if hide else "")
+            + "ORDER BY ts_epoch DESC LIMIT ?",
+            (*hide_params, int(limit)),
         ).fetchall()
         return [dict(row) for row in rows]
 
     def observed_clinics(self, day: str) -> List[str]:
+        hide, hide_params = ignored_clause()
         rows = self.conn.execute(
             "SELECT DISTINCT clinic_name AS c FROM observations WHERE day = ? "
-            "ORDER BY c",
-            (day,),
+            + (f"AND {hide} " if hide else "")
+            + "ORDER BY c",
+            (day, *hide_params),
         ).fetchall()
         return [row["c"] for row in rows]
 
     def observed_days(self, limit: int = 30) -> List[str]:
+        hide, hide_params = ignored_clause()
         rows = self.conn.execute(
-            "SELECT DISTINCT day AS d FROM observations ORDER BY d DESC LIMIT ?",
-            (limit,),
+            "SELECT DISTINCT day AS d FROM observations "
+            + (f"WHERE {hide} " if hide else "")
+            + "ORDER BY d DESC LIMIT ?",
+            (*hide_params, int(limit)),
         ).fetchall()
         return [row["d"] for row in rows]
 
@@ -364,6 +391,10 @@ class Database:
         if since_epoch:
             clauses.append("ts_epoch >= ?")
             params.append(since_epoch)
+        hide, hide_params = ignored_clause()
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([int(limit), int(offset)])
@@ -384,10 +415,17 @@ class Database:
 
     def counts_by_severity(self, since_epoch: Optional[float] = None) -> Dict[str, int]:
         sql = "SELECT severity, COUNT(*) AS n FROM events"
-        params: Sequence[Any] = ()
+        clauses: List[str] = []
+        params: List[Any] = []
         if since_epoch:
-            sql += " WHERE ts_epoch >= ?"
-            params = (since_epoch,)
+            clauses.append("ts_epoch >= ?")
+            params.append(since_epoch)
+        hide, hide_params = ignored_clause()
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
+        if clauses:
+            sql += f" WHERE {' AND '.join(clauses)}"
         sql += " GROUP BY severity"
         counts = {"High": 0, "Medium": 0, "Low": 0}
         for row in self.conn.execute(sql, params):
@@ -398,8 +436,12 @@ class Database:
     def distinct(self, column: str) -> List[str]:
         if column not in {"clinic_name", "camera_name"}:
             raise ValueError(f"cannot list distinct values of {column!r}")
+        hide, hide_params = ignored_clause()
         rows = self.conn.execute(
-            f"SELECT DISTINCT {column} AS v FROM events ORDER BY v"
+            f"SELECT DISTINCT {column} AS v FROM events "
+            + (f"WHERE {hide} " if hide else "")
+            + "ORDER BY v",
+            hide_params,
         ).fetchall()
         return [row["v"] for row in rows]
 

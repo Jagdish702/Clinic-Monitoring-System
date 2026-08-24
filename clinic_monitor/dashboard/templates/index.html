@@ -100,6 +100,12 @@
   .report th{background:var(--panel-2);font-weight:600;color:var(--muted)}
   .report strong{color:var(--text)}
   .note{color:var(--muted);font-size:12px}
+  .badge{display:inline-block;background:var(--high);color:#fff;border-radius:999px;
+         padding:1px 7px;font-size:11px;margin-left:6px;font-weight:500}
+  #offline-body h3{font-size:14px;font-weight:500;color:var(--accent);margin:4px 0 10px}
+  #offline-body table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
+  #offline-body th,#offline-body td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+  #offline-body th{background:var(--panel-2);font-weight:600;color:var(--muted)}
   select{background:var(--panel-2);color:var(--text);border:1px solid var(--line);
          border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
 
@@ -148,7 +154,10 @@
 <header>
   <div class="bar">
     <h1>Clinic Monitor <span>live alerts · newest first</span></h1>
-    <button class="btn primary" id="open-reports">All clinics · daily reports</button>
+    <span style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="open-reports">All clinics · daily reports</button>
+      <button class="btn" id="open-offline">Offline clinics <span id="offline-count" class="badge" hidden>0</span></button>
+    </span>
     <div class="tiles">
       <div class="tile high"><b id="c-high">{{ counts.High }}</b>High</div>
       <div class="tile medium"><b id="c-medium">{{ counts.Medium }}</b>Medium</div>
@@ -181,6 +190,21 @@
     No alerts match these filters yet.
   </div>
 </main>
+
+<!-- Offline clinics -->
+<div class="overlay" id="offline-overlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>Offline clinics</h2>
+      <span class="spacer"></span>
+      <select id="offline-day" title="Day to show"></select>
+      <button class="btn" id="offline-close">Close</button>
+    </div>
+    <div class="sheet-body">
+      <div id="offline-body"><p class="note">loading…</p></div>
+    </div>
+  </div>
+</div>
 
 <!-- All clinics / daily reports -->
 <div class="overlay" id="reports-overlay">
@@ -277,6 +301,107 @@ async function refresh(){
 
 refresh();
 setInterval(refresh, REFRESH_MS);
+
+/* ---------------- Offline clinics ---------------- */
+const offOverlay = document.getElementById("offline-overlay");
+const offBody    = document.getElementById("offline-body");
+const offDay     = document.getElementById("offline-day");
+let offlineDay = "";
+
+function hhmm(iso){ return iso ? esc(iso.slice(11,16)) : "—"; }
+
+function duration(mins){
+  if (mins < 60) return mins + " min";
+  const h = Math.floor(mins/60), m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+async function loadOffline(day){
+  offBody.innerHTML = '<p class="note">loading…</p>';
+  const qs = day ? "?day=" + encodeURIComponent(day) : "";
+  const d = await (await fetch("/api/offline" + qs, {cache:"no-store"})).json();
+  offlineDay = d.day;
+
+  const days = (d.days_with_data && d.days_with_data.length) ? d.days_with_data : [d.day];
+  if (!days.includes(d.day)) days.unshift(d.day);
+  offDay.innerHTML = days.map(x =>
+    `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+
+  let html = "";
+
+  if (d.outages.length){
+    html += `<h3 style="margin:4px 0 10px">Clinics that could not be reached</h3>
+      <div class="table-wrap"><table><thead><tr>
+      <th>Clinic</th><th>Offline from</th><th>Back at</th><th>Duration</th><th>Checks</th>
+      </tr></thead><tbody>` +
+      d.outages.map(o => {
+        const why = [o.reason ? "reason: " + o.reason : "",
+                     o.last_seen_working ? "last seen working " + hhmm(o.last_seen_working) : ""]
+                    .filter(Boolean).join(" · ");
+        return `<tr title="${esc(why)}">
+        <td><strong>${esc(o.clinic_name)}</strong></td>
+        <td>${hhmm(o.from)}</td>
+        <td>${o.ongoing ? '<span style="color:var(--high)">still offline</span>' : hhmm(o.to)}</td>
+        <td>${o.minutes < 1 ? "under one lap" : duration(o.minutes)}</td>
+        <td>${o.checks}</td>
+      </tr>`;}).join("") + `</tbody></table></div>
+      <p class="note">Times come from patrol checks, so each end is accurate to
+      about one lap. A clinic was last seen working before the "offline from"
+      time shown - hover a row for that time and the reason.</p>`;
+  } else {
+    html += `<p class="note">Every clinic responded on every check for ${esc(d.day)}.</p>`;
+  }
+
+  const dead = d.cameras.filter(c => c.all_day);
+  const flaky = d.cameras.filter(c => !c.all_day);
+
+  if (dead.length){
+    const byClinic = {};
+    dead.forEach(c => { (byClinic[c.clinic_name] = byClinic[c.clinic_name] || []).push(c.camera_name); });
+    html += `<h3 style="margin:22px 0 10px">Cameras dead all day</h3>
+      <div class="table-wrap"><table><thead><tr><th>Clinic</th><th>Cameras</th><th>Checks</th></tr></thead><tbody>` +
+      Object.entries(byClinic).map(([cl, cams]) => {
+        const checks = dead.find(c => c.clinic_name === cl).checks;
+        return `<tr><td>${esc(cl)}</td><td>${cams.map(esc).join(", ")}</td><td>${checks}</td></tr>`;
+      }).join("") + `</tbody></table></div>
+      <p class="note">These channels reported no signal on every check. The clinic
+      itself was reachable — the cameras were not.</p>`;
+  }
+
+  if (flaky.length){
+    html += `<h3 style="margin:22px 0 10px">Cameras that dropped out some of the time</h3>
+      <div class="table-wrap"><table><thead><tr>
+      <th>Clinic</th><th>Camera</th><th>Bad checks</th></tr></thead><tbody>` +
+      flaky.map(c => `<tr><td>${esc(c.clinic_name)}</td><td>${esc(c.camera_name)}</td>
+        <td>${c.bad} of ${c.checks}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+
+  offBody.innerHTML = html;
+}
+
+async function updateOfflineBadge(){
+  try{
+    const d = await (await fetch("/api/offline", {cache:"no-store"})).json();
+    const n = d.outages.filter(o => o.ongoing).length;
+    const badge = document.getElementById("offline-count");
+    badge.textContent = n;
+    badge.hidden = n === 0;
+  }catch(e){}
+}
+
+document.getElementById("open-offline").onclick = () => {
+  offOverlay.classList.add("open");
+  loadOffline(offlineDay);
+};
+document.getElementById("offline-close").onclick = () => offOverlay.classList.remove("open");
+offDay.onchange = () => loadOffline(offDay.value);
+offOverlay.onclick = (e) => { if (e.target === offOverlay) offOverlay.classList.remove("open"); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") offOverlay.classList.remove("open");
+});
+updateOfflineBadge();
+setInterval(updateOfflineBadge, 60000);
 
 /* ---------------- All clinics / daily reports ---------------- */
 const overlay   = document.getElementById("reports-overlay");

@@ -188,6 +188,67 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
              "days_with_data": database.observed_days(limit=14)}
         )
 
+    @app.route("/api/offline")
+    def api_offline():
+        """
+        What was unreachable today, at two levels.
+
+        A clinic can be down in two different ways, and both matter: the whole
+        device unreachable (the patrol cannot even open it), or the device fine
+        but individual camera channels dead. The second is easy to miss because
+        the clinic still appears in every report.
+        """
+        day = request.args.get("day") or _today()
+        outages = database.offline_periods(day)
+        summary = database.clinic_status_summary(day)
+
+        # Cameras that were faulty on every check of the day.
+        rows = database.conn.execute(
+            "SELECT clinic_name, camera_name,"
+            " COUNT(*) AS checks,"
+            " SUM(CASE WHEN health_status IN ('no_signal','frozen','obstructed')"
+            "     THEN 1 ELSE 0 END) AS bad,"
+            " MIN(timestamp) AS first_seen, MAX(timestamp) AS last_seen"
+            " FROM observations WHERE day = ?"
+            " GROUP BY clinic_name, camera_name"
+            " HAVING bad > 0 ORDER BY clinic_name, camera_name",
+            (day,),
+        ).fetchall()
+        cameras = [
+            {
+                "clinic_name": r["clinic_name"],
+                "camera_name": r["camera_name"],
+                "checks": r["checks"],
+                "bad": r["bad"],
+                "all_day": r["bad"] == r["checks"],
+                "first_seen": r["first_seen"],
+                "last_seen": r["last_seen"],
+            }
+            for r in rows
+        ]
+
+        # A day where every clinic failed has no observations at all, so the
+        # day list has to come from the status log as well or that day would
+        # be unselectable - exactly the day someone wants to look at.
+        status_days = [
+            r["d"]
+            for r in database.conn.execute(
+                "SELECT DISTINCT day AS d FROM clinic_status ORDER BY d DESC LIMIT 14"
+            ).fetchall()
+        ]
+        days = sorted(set(database.observed_days(limit=14)) | set(status_days),
+                      reverse=True)
+
+        return jsonify(
+            {
+                "day": day,
+                "outages": outages,
+                "clinics": summary,
+                "cameras": cameras,
+                "days_with_data": days,
+            }
+        )
+
     @app.route("/api/reports/<slug>")
     def api_report(slug: str):
         day = request.args.get("day") or _today()

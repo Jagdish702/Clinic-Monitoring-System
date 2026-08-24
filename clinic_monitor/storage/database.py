@@ -12,6 +12,7 @@ import json
 import logging
 import sqlite3
 import threading
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -75,6 +76,22 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS idx_obs_day    ON observations (day, clinic_name, ts_epoch);
 CREATE INDEX IF NOT EXISTS idx_obs_clinic ON observations (clinic_name, ts_epoch);
+
+-- Whether the clinic's device could be reached at all, recorded on every
+-- visit. Without this a skipped clinic leaves no trace: the patrol prints
+-- "skipped: Device Offline" and moves on, so afterwards there is no way to say
+-- when a site went down or came back. Both states are stored, because an
+-- offline period is only bounded once a later visit finds it online again.
+CREATE TABLE IF NOT EXISTS clinic_status (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT    NOT NULL,
+    ts_epoch    REAL    NOT NULL,
+    day         TEXT    NOT NULL,
+    clinic_name TEXT    NOT NULL,
+    status      TEXT    NOT NULL,          -- 'online' | 'offline'
+    reason      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_status_day ON clinic_status (day, clinic_name, ts_epoch);
 """
 
 OBSERVATION_COLUMNS = (
@@ -183,6 +200,111 @@ class Database:
             params.append(clinic_name)
         sql += " ORDER BY ts_epoch ASC"
         return [dict(row) for row in self.conn.execute(sql, params)]
+
+    def record_clinic_status(
+        self,
+        clinic_name: str,
+        status: str,
+        when: datetime,
+        reason: str = "",
+    ) -> None:
+        """Note whether a clinic's device answered on this visit."""
+        with self.conn as conn:
+            conn.execute(
+                "INSERT INTO clinic_status "
+                "(timestamp, ts_epoch, day, clinic_name, status, reason) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    when.astimezone().isoformat(timespec="seconds"),
+                    when.timestamp(),
+                    when.strftime("%Y-%m-%d"),
+                    clinic_name,
+                    status,
+                    reason,
+                ),
+            )
+
+    def offline_periods(self, day: str) -> List[Dict[str, Any]]:
+        """
+        Stretches where a clinic could not be reached, one entry per outage.
+
+        An outage runs from the first check that found the device offline to
+        the first check that found it back. Both ends are only known to within
+        one patrol lap, so `checked_from` (the last time it was seen working)
+        is carried too - the real failure happened somewhere in between.
+        """
+        rows = self.conn.execute(
+            "SELECT clinic_name, ts_epoch, timestamp, status, reason "
+            "FROM clinic_status WHERE day = ? ORDER BY clinic_name, ts_epoch",
+            (day,),
+        ).fetchall()
+
+        periods: List[Dict[str, Any]] = []
+        by_clinic: Dict[str, List[sqlite3.Row]] = defaultdict(list)
+        for row in rows:
+            by_clinic[row["clinic_name"]].append(row)
+
+        for clinic, entries in by_clinic.items():
+            open_period: Optional[Dict[str, Any]] = None
+            last_online: Optional[sqlite3.Row] = None
+            for entry in entries:
+                if entry["status"] == "offline":
+                    if open_period is None:
+                        open_period = {
+                            "clinic_name": clinic,
+                            "from": entry["timestamp"],
+                            "from_epoch": entry["ts_epoch"],
+                            "last_seen_working": (
+                                last_online["timestamp"] if last_online else None
+                            ),
+                            "reason": entry["reason"],
+                            "checks": 0,
+                        }
+                    open_period["checks"] += 1
+                else:
+                    if open_period is not None:
+                        open_period["to"] = entry["timestamp"]
+                        open_period["to_epoch"] = entry["ts_epoch"]
+                        open_period["ongoing"] = False
+                        periods.append(open_period)
+                        open_period = None
+                    last_online = entry
+            if open_period is not None:
+                last = entries[-1]
+                open_period["to"] = last["timestamp"]
+                open_period["to_epoch"] = last["ts_epoch"]
+                open_period["ongoing"] = True
+                periods.append(open_period)
+
+        for period in periods:
+            minutes = (period["to_epoch"] - period["from_epoch"]) / 60
+            period["minutes"] = round(minutes)
+        periods.sort(key=lambda p: (-p["minutes"], p["clinic_name"]))
+        return periods
+
+    def clinic_status_summary(self, day: str) -> Dict[str, Any]:
+        """Per-clinic totals for the day: checks, failures, current state."""
+        rows = self.conn.execute(
+            "SELECT clinic_name,"
+            " COUNT(*) AS checks,"
+            " SUM(CASE WHEN status='offline' THEN 1 ELSE 0 END) AS failures,"
+            " MAX(ts_epoch) AS last_epoch"
+            " FROM clinic_status WHERE day = ? GROUP BY clinic_name",
+            (day,),
+        ).fetchall()
+        summary = {}
+        for row in rows:
+            latest = self.conn.execute(
+                "SELECT status FROM clinic_status WHERE day=? AND clinic_name=?"
+                " ORDER BY ts_epoch DESC LIMIT 1",
+                (day, row["clinic_name"]),
+            ).fetchone()
+            summary[row["clinic_name"]] = {
+                "checks": row["checks"],
+                "failures": row["failures"],
+                "current": latest["status"] if latest else "unknown",
+            }
+        return summary
 
     def camera_descriptions(self, limit: int = 4000) -> List[Dict[str, Any]]:
         """

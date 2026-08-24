@@ -208,6 +208,8 @@ def visit(
     print(f"\n[{stamp}] {name}")
 
     regions = navigator.open_live_view(name)          # raises on offline/failure
+    if event_logger is not None:
+        event_logger.db.record_clinic_status(name, "online", datetime.now())
     clinic = build_clinic(name, regions, adb_serial=navigator.serial)
     observations = watch(clinic, duration, interval, detector=detector)
     stats.visits += 1
@@ -429,6 +431,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 reason = str(exc).split(" - ")[0]
                 stats.skipped[name] = reason
                 print(f"    skipped: {reason}")
+                # Record it: without a row here a skipped clinic leaves no
+                # trace at all, and afterwards nobody can say when a site went
+                # down or how long it stayed down.
+                if event_logger is not None:
+                    try:
+                        event_logger.db.record_clinic_status(
+                            name, "offline", datetime.now(), reason
+                        )
+                    except Exception as db_exc:
+                        log.error("could not record offline status: %s", db_exc)
             except CaptureError as exc:
                 stats.skipped[name] = f"capture failed: {exc}"
                 print(f"    skipped: capture failed: {exc}")

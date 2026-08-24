@@ -36,7 +36,7 @@ import config  # noqa: E402
 from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
 from analysis.camera_health import HealthStatus, assess_frame  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
-from capture.frame_reader import FrameReader  # noqa: E402
+from capture.frame_reader import FrameReader, camera_regions  # noqa: E402
 from control.navigator import NavigationError, PhoneNavigator, build_clinic  # noqa: E402
 from detection.yolo_detector import Detection, YoloDetector, draw_detections  # noqa: E402
 from motion.motion_detector import MotionRegistry  # noqa: E402
@@ -150,7 +150,11 @@ def watch(
     observations: Dict[str, CameraObservation] = {}
 
     live = wait_for_streams(reader)
-    log.info("%d of %d tiles are streaming", live, len(clinic.active_cameras()))
+    # Count against the tiles actually being watched, not every tile the app
+    # draws. With Cameras 03 and 04 ignored this said "2 of 4 are streaming"
+    # when both watched tiles were streaming perfectly - a healthy view that
+    # read as half broken.
+    log.info("%d of %d tiles are streaming", live, len(camera_regions(clinic)))
 
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:

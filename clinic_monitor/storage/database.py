@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS observations (
     severity        TEXT,
     unusual         INTEGER DEFAULT 0,
     description     TEXT,
+    -- Gemini's own read on whether anybody is in shot. Kept alongside the
+    -- YOLO person count because the two fail differently: YOLO misses a
+    -- person seated at a desk across a wide room, which is most of what a
+    -- consulting-room camera shows.
+    staff_present   INTEGER DEFAULT 0,
+    patient_present INTEGER DEFAULT 0,
     source          TEXT    NOT NULL DEFAULT 'patrol'
 );
 CREATE INDEX IF NOT EXISTS idx_obs_day    ON observations (day, clinic_name, ts_epoch);
@@ -114,7 +120,8 @@ OBSERVATION_COLUMNS = (
     "timestamp", "ts_epoch", "day", "clinic_name", "camera_name",
     "frames", "motion_frames", "max_persons", "health_status",
     "brightness", "detail", "edge_ratio", "flat_ratio", "frame_change",
-    "clinic_status", "severity", "unusual", "description", "source",
+    "clinic_status", "severity", "unusual", "description",
+    "staff_present", "patient_present", "source",
 )
 
 EVENT_COLUMNS = (
@@ -168,6 +175,33 @@ class Database:
     def init_schema(self) -> None:
         with self.conn as conn:
             conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """
+        Add columns the schema has grown since a database was created.
+
+        ``CREATE TABLE IF NOT EXISTS`` leaves an existing table exactly as it
+        was, so a new column in SCHEMA never reaches a database that already
+        has rows in it - which is every deployed one.
+        """
+        wanted = {
+            "observations": {
+                "staff_present": "INTEGER DEFAULT 0",
+                "patient_present": "INTEGER DEFAULT 0",
+            },
+        }
+        for table, columns in wanted.items():
+            have = {
+                row["name"]
+                for row in self.conn.execute(f"PRAGMA table_info({table})")
+            }
+            for name, spec in columns.items():
+                if name in have:
+                    continue
+                log.info("adding %s.%s", table, name)
+                with self.conn as conn:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
 
     def close(self) -> None:
         existing = getattr(self._local, "conn", None)
@@ -196,7 +230,8 @@ class Database:
 
     def insert_observation(self, observation: Dict[str, Any]) -> int:
         row = {key: observation.get(key) for key in OBSERVATION_COLUMNS}
-        row["unusual"] = int(bool(row.get("unusual")))
+        for flag in ("unusual", "staff_present", "patient_present"):
+            row[flag] = int(bool(row.get(flag)))
         placeholders = ", ".join(f":{c}" for c in OBSERVATION_COLUMNS)
         sql = (
             f"INSERT INTO observations ({', '.join(OBSERVATION_COLUMNS)}) "

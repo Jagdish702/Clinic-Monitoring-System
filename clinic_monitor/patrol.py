@@ -105,6 +105,8 @@ def _observation_row(
         "severity": None,
         "unusual": False,
         "description": "",
+        "staff_present": False,
+        "patient_present": False,
         "source": "patrol",
     }
     return row
@@ -329,6 +331,8 @@ def visit(
             severity=analysis.severity,
             unusual=analysis.unusual_activity or analysis.immediate_attention,
             description=analysis.description,
+            staff_present=analysis.staff_present,
+            patient_present=analysis.patient_present,
         )
         _save(event_logger, record)
 

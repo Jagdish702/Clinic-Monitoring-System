@@ -76,11 +76,25 @@ def _staffed(row: dict) -> bool:
     pixels changing is not the same as a clinic being used. Measured here, at
     01:21 a "network timeout" banner drawn over the video counted as motion
     and opened BALANGA's day; at 00:49 a frame Gemini itself described as an
-    empty clinic opened Gop's. Both had no one in them. A person is the one
-    signal that cannot be produced by an error message, an IR lamp switching
-    over, or a moth.
+    empty clinic opened Gop's. Both had no one in them.
+
+    Two independent readings count, because they fail differently. YOLO sees
+    people close to the lens; it scored 0 on every single frame of Gop's
+    consulting room while Gemini was writing "staff member seated at the desk
+    working in the clinic" - a person across a wide room is small, seated and
+    half behind furniture. Trusting the box count alone erased that clinic's
+    whole day.
     """
-    return (row.get("max_persons") or 0) > 0
+    if (row.get("max_persons") or 0) > 0:
+        return True
+    if row.get("staff_present") or row.get("patient_present"):
+        return True
+    # Gemini's own verdict that the clinic is operating. Weaker than seeing a
+    # person - a lit, set-up room with nobody in it reads as Open - but it is
+    # the question the hours actually ask, and it is the only people-aware
+    # signal on rows written before the flags above existed. It cannot fire in
+    # the small hours: analysis only runs once motion has already been seen.
+    return row.get("clinic_status") == "Open"
 
 
 def effective_status(row: dict) -> Optional[str]:

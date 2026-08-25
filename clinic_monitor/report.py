@@ -68,6 +68,21 @@ def _active(row: dict) -> bool:
     return (row.get("max_persons") or 0) > 0 or (row.get("motion_frames") or 0) > 0
 
 
+def _staffed(row: dict) -> bool:
+    """
+    Did this observation show a person?
+
+    Opening and closing hang on this rather than on ``_active``, because
+    pixels changing is not the same as a clinic being used. Measured here, at
+    01:21 a "network timeout" banner drawn over the video counted as motion
+    and opened BALANGA's day; at 00:49 a frame Gemini itself described as an
+    empty clinic opened Gop's. Both had no one in them. A person is the one
+    signal that cannot be produced by an error message, an IR lamp switching
+    over, or a moth.
+    """
+    return (row.get("max_persons") or 0) > 0
+
+
 def effective_status(row: dict) -> Optional[str]:
     """
     Re-derive the health verdict from the stored measurements.
@@ -162,7 +177,7 @@ def operating_hours(
     scope = [r for r in usable if r["camera_name"] in indoor] if indoor else []
     used_indoor = bool(scope)
     watched = scope or usable
-    active = [r for r in watched if _active(r)]
+    active = [r for r in watched if _staffed(r)]
     # Coverage is measured on the same cameras the times come from. Counting a
     # working outdoor camera as coverage of an indoor one would paper over
     # exactly the holes this is meant to find.
@@ -178,7 +193,8 @@ def operating_hours(
             "resolution_min": typical_gap, "first_seen": None, "last_seen": None,
             "used_indoor": used_indoor, "basis": sorted(indoor) if indoor else [],
             "visits": visits, "blind_limit": limit, "worst_blind": None,
-            "note": "no activity was observed all day",
+            "note": "nobody was seen on camera all day, so opening and closing "
+                    "cannot be placed",
         }
 
     opened = _time(active[0])
@@ -279,7 +295,14 @@ def _verdict(
                 )
         if abs(delta) <= tolerance:
             return "on time"
-        return f"{abs(delta):.0f} min {'late' if delta > 0 else 'early'}"
+        if delta < 0:
+            # Somebody was on camera before opening time. That is direct
+            # evidence, so it can be stated flatly.
+            return f"{abs(delta):.0f} min early"
+        # The other direction is not symmetric. Seeing nobody until 09:12 does
+        # not prove nobody was there at 07:30 - a person sitting still in a dim
+        # room is missed. Report the observation, not a conclusion about staff.
+        return f"nobody seen until {_hhmm(actual)}, {delta:.0f} min after {expected}"
 
     # Closing. Seeing activity after the expected close is a real finding, but
     # it says the clinic had *not* closed - not that we watched it close. And
@@ -304,7 +327,7 @@ def _verdict(
                 f"cannot tell - nothing usable was seen for {hole / 60:.0f} min "
                 f"before the expected {expected}"
             )
-    return f"quiet from {_hhmm(actual)}, {abs(delta):.0f} min before {expected}"
+    return f"nobody seen after {_hhmm(actual)}, {abs(delta):.0f} min before {expected}"
 
 
 # --------------------------------------------------------------------------- #
@@ -494,9 +517,9 @@ def build_report(
     add("| | Observed | Expected | Verdict |")
     add("| --- | --- | --- | --- |")
     seen = (hours.get("visits") or (), hours.get("blind_limit") or 45.0 * 60.0)
-    add(f"| Opened (first activity seen) | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
+    add(f"| Opened (first person seen) | {_hhmm(hours['opened'])} | {EXPECTED_OPEN} | "
         f"{_verdict(hours['opened'], EXPECTED_OPEN, hours['first_seen'], hours['last_seen'], True, *seen)} |")
-    add(f"| Closed (last activity seen) | {_hhmm(hours['closed'])} | {EXPECTED_CLOSE} | "
+    add(f"| Closed (last person seen) | {_hhmm(hours['closed'])} | {EXPECTED_CLOSE} | "
         f"{_verdict(hours['closed'], EXPECTED_CLOSE, hours['first_seen'], hours['last_seen'], False, *seen)} |")
     if hours["lunch"]:
         start, end = hours["lunch"]
@@ -524,9 +547,11 @@ def build_report(
             "than a timeline."
         )
         add(
-            f"\nThese are bounds, not exact times: activity was first seen at "
+            f"\nThese are bounds, not exact times: a person was first seen at "
             f"{_hhmm(hours['opened'])} and last seen at {_hhmm(hours['closed'])}, so "
-            f"the clinic was open at least between those. {gap}"
+            f"the clinic was open at least between those. It may well have opened "
+            f"earlier and closed later - someone sitting still in a dim room is "
+            f"not always picked up. {gap}"
         )
 
     # -- 2. occupancy --

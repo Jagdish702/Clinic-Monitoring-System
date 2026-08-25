@@ -506,8 +506,16 @@ def build_report(
     add(f"Monitoring covered **{_hhmm(hours['first_seen'])} to "
         f"{_hhmm(hours['last_seen'])}**. Nothing outside that window was seen.\n")
     if hours.get("used_indoor"):
-        add(f"Times below come from the indoor camera "
-            f"({', '.join(hours['basis'])}) only. Activity outdoors - someone "
+        # Most clinics have exactly one indoor camera, but Gop has two - both
+        # of its views are inside - so the sentence has to read correctly
+        # either way rather than saying "the indoor camera (Camera 01, 02)".
+        basis = hours["basis"]
+        which = (
+            f"the indoor camera ({basis[0]})"
+            if len(basis) == 1
+            else f"the {len(basis)} indoor cameras ({', '.join(basis)})"
+        )
+        add(f"Times below come from {which} only. Activity outdoors - someone "
             f"walking past in the evening - says nothing about whether the "
             f"clinic is working.\n")
     else:

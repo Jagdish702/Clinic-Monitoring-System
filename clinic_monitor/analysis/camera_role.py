@@ -23,8 +23,15 @@ which is exactly why this is derived rather than assumed.
 
 from __future__ import annotations
 
+import json
+import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
+
+import config
+
+log = logging.getLogger(__name__)
 
 INDOOR = "indoor"
 OUTDOOR = "outdoor"
@@ -65,6 +72,45 @@ def classify_description(text: Optional[str]) -> Optional[str]:
     return None
 
 
+def load_overrides(path: Optional[Path] = None) -> Dict[Tuple[str, str], str]:
+    """
+    Roles set by hand, which always beat what the descriptions suggest.
+
+    Reading the scene only tells us whether a camera points at an interior,
+    and that is not quite the question. At Gop both cameras are indoors, but
+    one watches the reception area and the other the consulting room - and
+    only the consulting room answers "is the clinic working?". No wording in
+    the description distinguishes them, so somebody who knows the site has to
+    say. The file is plain JSON so that can be done without a code change:
+
+        {"CureBay Gop": {"Camera 01": "outdoor", "Camera 02": "indoor"}}
+    """
+    path = Path(path or config.CAMERA_ROLES_PATH)
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("could not read camera roles from %s: %s", path, exc)
+        return {}
+
+    overrides: Dict[Tuple[str, str], str] = {}
+    for clinic, cameras in (raw or {}).items():
+        # The file carries its own instructions under "_comment"; skip that and
+        # anything else that is not a clinic -> {camera: role} mapping, so a
+        # typo cannot take the whole file down with it.
+        if clinic.startswith("_") or not isinstance(cameras, dict):
+            continue
+        for camera, role in cameras.items():
+            role = str(role).strip().lower()
+            if role not in (INDOOR, OUTDOOR):
+                log.warning("ignoring role %r for %s/%s - expected %r or %r",
+                            role, clinic, camera, INDOOR, OUTDOOR)
+                continue
+            overrides[(clinic.strip(), camera.strip())] = role
+    return overrides
+
+
 def infer_roles(
     rows: Iterable[dict], min_agreement: float = 0.6, min_samples: int = 2
 ) -> Dict[Tuple[str, str], str]:
@@ -74,6 +120,8 @@ def infer_roles(
     A camera is only assigned a role when the descriptions agree; a single
     ambiguous sighting is left unclassified rather than guessed at, because a
     wrong role would suppress a status pill that was actually meaningful.
+
+    Anything named in the overrides file wins outright - see load_overrides.
     """
     tally: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(
         lambda: {INDOOR: 0, OUTDOOR: 0}
@@ -91,6 +139,21 @@ def infer_roles(
         winner = INDOOR if counts[INDOOR] >= counts[OUTDOOR] else OUTDOOR
         if counts[winner] / total >= min_agreement:
             roles[key] = winner
+
+    # Applied last, and to every camera named - including ones the
+    # descriptions never managed to classify at all. Names are matched without
+    # regard to case, because the clinic is written "CureBay Gop" in some
+    # places and "CUREBAY GOP" in others and nobody should have to guess which.
+    for (clinic, camera), role in load_overrides().items():
+        wanted = (clinic.lower(), camera.lower())
+        matched = [
+            key for key in roles
+            if (key[0].strip().lower(), key[1].strip().lower()) == wanted
+        ]
+        for key in matched:
+            roles[key] = role
+        if not matched:
+            roles[(clinic, camera)] = role
     return roles
 
 

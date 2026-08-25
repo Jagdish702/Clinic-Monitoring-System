@@ -98,6 +98,13 @@ def is_ignored_camera(name: str) -> bool:
 STALL_RESTART_APP = int(os.getenv("CM_STALL_RESTART_APP", "2"))
 STALL_RESTART_EMULATOR = int(os.getenv("CM_STALL_RESTART_EMULATOR", "4"))
 
+# Camera roles set by hand, overriding what the scene descriptions imply.
+# Needed where both cameras look indoors and only somebody who knows the site
+# can say which one is the consulting room. See analysis/camera_role.py.
+CAMERA_ROLES_PATH = Path(
+    os.getenv("CM_CAMERA_ROLES", str(BASE_DIR / "camera_roles.json"))
+)
+
 # --------------------------------------------------------------------------- #
 # Android emulator - an alternative to a physically connected phone
 # --------------------------------------------------------------------------- #

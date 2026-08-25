@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Camera roles set by hand. These beat whatever the scene descriptions",
+    "suggest, and are read fresh on every report, so editing this file is",
+    "enough - no restart, no code change.",
+    "",
+    "'indoor' means the camera that answers 'is the clinic working?' - the",
+    "consulting room. Opening, closing and lunch are read from it alone.",
+    "'outdoor' means everything else: a courtyard, an entrance, or a waiting",
+    "area outside the consulting room. Those views cannot tell whether the",
+    "clinic is open, so they are excluded from the times.",
+    "",
+    "Only list a camera when the automatic reading is wrong. Every other",
+    "clinic here is inferred correctly and needs no entry."
+  ],
+
+  "CureBay Gop": {
+    "Camera 01": "outdoor",
+    "Camera 02": "indoor"
+  }
+}

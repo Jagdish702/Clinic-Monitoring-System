@@ -29,6 +29,7 @@ observations are given instead, with an explicit range.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -42,6 +43,8 @@ import config  # noqa: E402
 from analysis.camera_health import FROZEN_DIFF, HealthStatus  # noqa: E402
 from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from storage.database import Database  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 REPORT_DIR = config.BASE_DIR / "reports"
 
@@ -253,6 +256,46 @@ def operating_hours(
         "worst_blind": worst,
         "note": "",
     }
+
+
+def _gap_cause(
+    start: datetime, end: datetime, outages: Optional[Sequence[dict]]
+) -> str:
+    """
+    Explain a blind window, naming the device outage behind it when there was
+    one.
+
+    Gop lost seven hours of 25 August and the report could only say the camera
+    was frozen, offline, or unreached. The status log knew exactly: the app had
+    been showing "Device Offline" for that clinic since 12:08. Which of the
+    three it was decides who has to do something about it - the clinic's
+    internet, the NVR, or this system - so it is worth saying.
+    """
+    generic = ("The camera was frozen, offline, or the patrol did not reach "
+               "this clinic.")
+    if not outages:
+        return generic
+
+    overlap = [
+        o for o in outages
+        if o.get("from_epoch") is not None
+        and o["from_epoch"] < end.timestamp()
+        and (o.get("to_epoch") or o["from_epoch"]) > start.timestamp()
+    ]
+    if not overlap:
+        return generic
+
+    worst = max(overlap, key=lambda o: o.get("minutes") or 0)
+    began = datetime.fromtimestamp(worst["from_epoch"])
+    if worst.get("ongoing"):
+        return (f"The clinic's device was unreachable from {_hhmm(began)} and had "
+                f"not come back - the app showed \"Device Offline\". That is the "
+                f"clinic's own connection or NVR, not this system.")
+    back = datetime.fromtimestamp(worst["to_epoch"])
+    return (f"The clinic's device was unreachable from {_hhmm(began)} to "
+            f"{_hhmm(back)} - the app showed \"Device Offline\", so there was no "
+            f"stream to watch. That is the clinic's own connection or NVR, not "
+            f"this system.")
 
 
 def _expected_at(day: datetime, expected: str) -> datetime:
@@ -496,7 +539,11 @@ def camera_health(rows: Sequence[dict]) -> List[dict]:
 # Rendering
 # --------------------------------------------------------------------------- #
 def build_report(
-    clinic: str, day: str, rows: Sequence[dict], indoor: Optional[set] = None
+    clinic: str,
+    day: str,
+    rows: Sequence[dict],
+    indoor: Optional[set] = None,
+    outages: Optional[Sequence[dict]] = None,
 ) -> str:
     hours = operating_hours(rows, indoor)
     occ = occupancy(rows)
@@ -554,10 +601,13 @@ def build_report(
 
     worst = hours.get("worst_blind")
     if worst and worst[0] > hours.get("blind_limit", 45.0 * 60.0):
+        # Say which of the possible causes it actually was, when we know.
+        # "The camera was frozen, offline, or we never got there" is three
+        # different jobs for three different people; the status log settles it.
+        cause = _gap_cause(worst[1], worst[2], outages)
         add(f"\n> **Coverage gap:** nothing usable was seen for "
             f"**{worst[0] / 60:.0f} minutes** between {_hhmm(worst[1])} and "
-            f"{_hhmm(worst[2])} - the camera was frozen, offline, or the patrol "
-            f"did not reach this clinic. Anything that happened in that window "
+            f"{_hhmm(worst[2])}. {cause} Anything that happened in that window "
             f"is simply unknown, and the times above cannot account for it.\n")
 
     if hours["opened"]:
@@ -650,10 +700,15 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
     if not rows:
         return None
     roles = infer_roles(db.camera_descriptions())
+    try:
+        outages = [o for o in db.offline_periods(day) if o["clinic_name"] == clinic]
+    except Exception as exc:                  # a report is worth more than this
+        log.debug("could not read outages for %s: %s", clinic, exc)
+        outages = []
     path = report_path(clinic, day)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        build_report(clinic, day, rows, indoor_cameras(roles, clinic)),
+        build_report(clinic, day, rows, indoor_cameras(roles, clinic), outages),
         encoding="utf-8",
     )
     return path

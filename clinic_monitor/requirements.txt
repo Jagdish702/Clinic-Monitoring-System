@@ -40,6 +40,10 @@ google-genai>=2.17.0
 # Stage 6 - dashboard and the report viewer
 Flask==3.0.3
 
+# Writes the daily .xlsx workbook the dashboard offers for download. Pure
+# Python, no Excel needed on the server.
+openpyxl==3.1.5
+
 # Reads .env
 python-dotenv==1.0.1
 

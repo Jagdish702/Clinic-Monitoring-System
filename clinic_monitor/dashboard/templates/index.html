@@ -104,7 +104,7 @@
          padding:1px 7px;font-size:11px;margin-left:6px;font-weight:500}
   #csv-bar{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);
            display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  #download-csv{text-decoration:none;display:inline-block}
+  #download-csv,#download-csv-plain{text-decoration:none;display:inline-block}
   #offline-body h3{font-size:14px;font-weight:500;color:var(--accent);margin:4px 0 10px}
   #offline-body table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
   #offline-body th,#offline-body td{border:1px solid var(--line);padding:7px 10px;text-align:left}
@@ -224,9 +224,10 @@
       <div id="reports-list"></div>
       <div id="report-view" class="report" hidden></div>
       <div id="csv-bar">
-        <a class="btn primary" id="download-csv" href="/api/reports/csv" download>
-          Daily report .csv
+        <a class="btn primary" id="download-csv" href="/api/reports/xlsx" download>
+          Daily report (Excel)
         </a>
+        <a class="btn" id="download-csv-plain" href="/api/reports/csv" download>.csv</a>
         <span class="note" id="csv-note"></span>
       </div>
     </div>
@@ -422,12 +423,15 @@ const daySel    = document.getElementById("report-day");
 const updateBtn = document.getElementById("reports-refresh");
 let currentDay = "";
 
-const csvLink = document.getElementById("download-csv");
-const csvNote = document.getElementById("csv-note");
+const xlsxLink = document.getElementById("download-csv");
+const csvLink  = document.getElementById("download-csv-plain");
+const csvNote  = document.getElementById("csv-note");
 
 /* One file per day, named after that day, so a folder of them stays sorted
    and nobody has to guess which download is which. */
 function setCsvDay(day){
+  xlsxLink.href = "/api/reports/xlsx?day=" + encodeURIComponent(day);
+  xlsxLink.setAttribute("download", `clinic-daily-report-${day}.xlsx`);
   csvLink.href = "/api/reports/csv?day=" + encodeURIComponent(day);
   csvLink.setAttribute("download", `clinic-daily-report-${day}.csv`);
   csvNote.textContent =

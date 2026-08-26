@@ -29,6 +29,7 @@ import config  # noqa: E402
 import report as reporting  # noqa: E402
 from analysis.camera_role import infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
+from dashboard.workbook import build_workbook  # noqa: E402
 from storage.database import Database, ignored_clause  # noqa: E402
 
 SEVERITIES = ("High", "Medium", "Low")
@@ -283,6 +284,29 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             headers={
                 "Content-Disposition":
                     f'attachment; filename="clinic-daily-report-{day}.csv"'
+            },
+        )
+
+    @app.route("/api/reports/xlsx")
+    def api_reports_xlsx():
+        """One Excel workbook per day: clinic, date, opening, closing, status."""
+        day = request.args.get("day") or _today()
+        try:
+            book = build_workbook(day, reporting.daily_summary(day, db=database))
+        except RuntimeError as exc:            # openpyxl missing on this host
+            return jsonify({"ok": False, "day": day, "error": str(exc)}), 501
+
+        buffer = io.BytesIO()
+        book.save(buffer)
+        return Response(
+            buffer.getvalue(),
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="clinic-daily-report-{day}.xlsx"'
             },
         )
 

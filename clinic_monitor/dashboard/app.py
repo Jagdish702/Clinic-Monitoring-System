@@ -279,7 +279,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # mangles any non-ASCII clinic name. The BOM tells it otherwise.
         return Response(
             buffer.getvalue().encode("utf-8-sig"),
-            mimetype="text/csv; charset=utf-8",
+            mimetype="text/csv",
             headers={
                 "Content-Disposition":
                     f'attachment; filename="clinic-daily-report-{day}.csv"'

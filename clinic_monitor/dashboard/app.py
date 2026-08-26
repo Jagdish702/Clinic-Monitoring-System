@@ -10,13 +10,18 @@ filters and the evidence screenshot for each event.
 
 from __future__ import annotations
 
+import csv
+import io
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import (
+    Flask, Response, abort, jsonify, render_template, request,
+    send_from_directory,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -249,6 +254,36 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 "cameras": cameras,
                 "days_with_data": days,
             }
+        )
+
+    @app.route("/api/reports/csv")
+    def api_reports_csv():
+        """One CSV per day: clinic, date, opening, closing, status."""
+        day = request.args.get("day") or _today()
+        rows = reporting.daily_summary(day, db=database)
+
+        buffer = io.StringIO()
+        # QUOTE_ALL keeps a clinic name with a comma in it from splitting into
+        # two columns, whatever spreadsheet opens the file.
+        writer = csv.writer(buffer, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+        writer.writerow(["Clinic", "Date", "Opening time", "Closing time",
+                         "Status", "Offline minutes", "Checks"])
+        for row in rows:
+            writer.writerow([
+                row["clinic"], row["date"], row["opening_time"],
+                row["closing_time"], row["status"], row["offline_minutes"],
+                row["checks"],
+            ])
+
+        # utf-8-sig: Excel reads a plain UTF-8 CSV as the local codepage and
+        # mangles any non-ASCII clinic name. The BOM tells it otherwise.
+        return Response(
+            buffer.getvalue().encode("utf-8-sig"),
+            mimetype="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="clinic-daily-report-{day}.csv"'
+            },
         )
 
     @app.route("/api/reports/<slug>")

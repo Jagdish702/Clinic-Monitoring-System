@@ -714,6 +714,69 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
     return path
 
 
+def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str]]:
+    """
+    One row per clinic for a day: when it opened, when it closed, and which of
+    the three states it was in.
+
+    The states answer different questions and must not be blurred together:
+
+        opened   somebody was seen inside, so the clinic was working
+        closed   the cameras worked and nobody was ever seen
+        offline  the device could not be reached, so nothing was watched
+
+    "offline" is emphatically not "closed". A clinic whose NVR dropped off the
+    network looks identical to a shut one through this system, and calling it
+    closed would blame the staff for a broken router.
+    """
+    db = db or Database()
+    roles = infer_roles(db.camera_descriptions())
+    try:
+        outages = db.offline_periods(day)
+    except Exception as exc:
+        log.debug("could not read outages for %s: %s", day, exc)
+        outages = []
+    try:
+        status = db.clinic_status_summary(day)
+    except Exception as exc:
+        log.debug("could not read status summary for %s: %s", day, exc)
+        status = {}
+
+    names = sorted(set(db.observed_clinics(day)) | set(status))
+    summary: List[Dict[str, str]] = []
+    for clinic in names:
+        rows = db.get_observations(day, clinic)
+        hours = operating_hours(rows, indoor_cameras(roles, clinic)) if rows else None
+        opened = hours["opened"] if hours else None
+        closed = hours["closed"] if hours else None
+
+        checks = status.get(clinic, {}).get("checks", 0)
+        failures = status.get(clinic, {}).get("failures", 0)
+        mine = [o for o in outages if o["clinic_name"] == clinic]
+        down = sum(o.get("minutes") or 0 for o in mine)
+
+        if opened:
+            state = "opened"
+        elif checks and failures == checks:
+            # Every attempt that day was refused: nothing was ever watched.
+            state = "offline"
+        elif not rows:
+            state = "offline"
+        else:
+            state = "closed"
+
+        summary.append({
+            "clinic": clinic,
+            "date": day,
+            "opening_time": _hhmm(opened) if opened else "",
+            "closing_time": _hhmm(closed) if closed else "",
+            "status": state,
+            "offline_minutes": str(down) if down else "0",
+            "checks": str(checks or len(visit_times(rows))),
+        })
+    return summary
+
+
 def generate_all(day: str, db: Optional[Database] = None) -> List[Path]:
     """Refresh every clinic that has observations for the day."""
     db = db or Database()

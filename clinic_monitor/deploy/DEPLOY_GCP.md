@@ -220,7 +220,37 @@ everything running, nothing being captured.
 
 ---
 
-## 9. What will go wrong
+## 9. Keep the emulator young with a periodic restart
+
+```bash
+sudo tee /etc/cron.d/clinic-periodic-restart >/dev/null <<'EOF'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+15 3 * * * root /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
+EOF
+sudo chmod 644 /etc/cron.d/clinic-periodic-restart
+```
+
+The watchdog above only reacts once the patrol has already stopped producing
+data - it never fires while the emulator is still working but slowly leaking
+memory. This restarts on the calendar instead, unconditionally, once a day at
+03:15 server time: `qemu-system-x86` reached ~15GB resident and got OOM-killed
+by the kernel on 2026-08-29 after about two weeks of unbroken uptime, which
+wedged the whole VM (SSH and the dashboard both stopped answering) until a
+manual `gcloud compute instances reset`. A daily recycle keeps any single run
+nowhere near old enough for that to happen again.
+
+Verify it once by hand rather than trusting the crontab syntax:
+
+```bash
+sudo /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
+sudo tail -5 clinic_monitor/logs/periodic_restart.log
+sudo systemctl status "clinic-patrol@$USER" --no-pager   # Active since just now
+```
+
+---
+
+## 10. What will go wrong
 
 Honest list, from what we have already hit in practice:
 
@@ -228,6 +258,7 @@ Honest list, from what we have already hit in practice:
 | --- | --- |
 | App hangs on cold boot, ANR dialog blocks the screen | The navigator detects and dismisses it automatically. Seen twice here. |
 | Emulator wedges beyond recovery | Watchdog restarts it; systemd restarts the patrol |
+| Emulator memory grows unbounded over very long uptime, OOM-kills the VM itself (hit once, 2026-08-29 - see §9) | Daily periodic restart recycles the emulator well before any run gets that old |
 | Streams time out mid-patrol | Clinic is skipped, retried next round |
 | Gemini rate limits | Falls back to local descriptions, recovers on its own |
 | **Hik-Connect signs the emulator out** | **No automatic recovery.** The system goes blind until someone signs in again through §5. Watch for it. |
@@ -238,7 +269,7 @@ needs a person.
 
 ---
 
-## 10. Running costs
+## 11. Running costs
 
 | Item | Approximate |
 | --- | --- |
@@ -252,7 +283,7 @@ spot/preemptible instances - eviction mid-patrol defeats the purpose.
 
 ---
 
-## 11. Updating
+## 12. Updating
 
 ```bash
 cd /opt/clinic-monitoring && git pull

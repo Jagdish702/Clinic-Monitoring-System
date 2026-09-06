@@ -226,7 +226,7 @@ everything running, nothing being captured.
 sudo tee /etc/cron.d/clinic-periodic-restart >/dev/null <<'EOF'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-15 3 * * * root /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
+0 3 * * * root /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
 EOF
 sudo chmod 644 /etc/cron.d/clinic-periodic-restart
 ```
@@ -234,7 +234,8 @@ sudo chmod 644 /etc/cron.d/clinic-periodic-restart
 The watchdog above only reacts once the patrol has already stopped producing
 data - it never fires while the emulator is still working but slowly leaking
 memory. This restarts on the calendar instead, unconditionally, once a day at
-03:15 server time: `qemu-system-x86` reached ~15GB resident and got OOM-killed
+03:00 IST (`Asia/Kolkata` - confirmed with `timedatectl` as the VM's own
+system timezone): `qemu-system-x86` reached ~15GB resident and got OOM-killed
 by the kernel on 2026-08-29 after about two weeks of unbroken uptime, which
 wedged the whole VM (SSH and the dashboard both stopped answering) until a
 manual `gcloud compute instances reset`. A daily recycle keeps any single run

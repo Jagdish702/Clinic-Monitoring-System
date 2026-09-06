@@ -13,9 +13,9 @@
 # anywhere near the two weeks it took to repeat that.
 #
 # Installed as /etc/cron.d/clinic-periodic-restart, running as root once a
-# day at 03:15 server time (low patrol traffic, offset from logrotate and the
-# other stock cron jobs) - see DEPLOY_GCP.md section 9:
-#   15 3 * * * root /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
+# day at 03:00 IST (Asia/Kolkata - the VM's own system timezone, confirmed
+# with timedatectl) - see DEPLOY_GCP.md section 9:
+#   0 3 * * * root /opt/clinic-monitoring/clinic_monitor/deploy/periodic_restart.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

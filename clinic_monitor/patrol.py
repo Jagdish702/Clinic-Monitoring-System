@@ -519,7 +519,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     if stuck >= config.STALL_RESTART_EMULATOR and args.emulator is not None:
                         print("    the app restart did not help - restarting the "
                               "emulator")
-                        emulator.stop()
+                        # Scoped to this patrol's own AVD - with several
+                        # emulators possibly running side by side (one per
+                        # account), an unscoped stop() would risk killing a
+                        # different instance's emulator instead of this one.
+                        emulator.stop(avd=args.emulator or None)
                         navigator.use_serial(
                             emulator.ensure_running(args.emulator or None)
                         )

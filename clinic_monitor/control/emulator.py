@@ -115,15 +115,57 @@ def _adb(*args: str, timeout: float = 60.0) -> str:
     )
 
 
-def running_serial() -> Optional[str]:
-    """Serial of an already-running emulator, if any."""
+def running_serials() -> List[str]:
+    """Serials of every emulator adb currently lists as ready to use."""
+    serials = []
     for line in _adb("devices").splitlines()[1:]:
         if "\t" not in line:
             continue
         serial, state = (part.strip() for part in line.split("\t", 1))
         if serial.startswith("emulator-") and state == "device":
+            serials.append(serial)
+    return serials
+
+
+def _avd_name_of(serial: str) -> Optional[str]:
+    """Ask the emulator console, via adb, which AVD a serial was booted from."""
+    out = _adb("-s", serial, "emu", "avd", "name")
+    for line in out.splitlines():
+        line = line.strip()
+        if line and line.upper() != "OK":
+            return line
+    return None
+
+
+def serial_for_avd(avd: str) -> Optional[str]:
+    """
+    Which running serial, if any, was booted from the given AVD.
+
+    More than one emulator can be running on this host at once - each patrol
+    instance targets a different Hik-Connect account, one AVD each - so
+    "the emulator that's running" is only a safe question once it is scoped
+    to a specific AVD. Asking the emulator console (via adb) which AVD it
+    booted from is authoritative even when several are up together; matching
+    on process order or "whichever adb lists first" is not.
+    """
+    for serial in running_serials():
+        if (_avd_name_of(serial) or "").lower() == avd.lower():
             return serial
     return None
+
+
+def running_serial(avd: Optional[str] = None) -> Optional[str]:
+    """
+    Serial of an already-running emulator, if any.
+
+    Pass ``avd`` whenever more than one emulator might be running on this
+    host: without it, this can only report "whichever one adb lists first",
+    which silently picks the wrong emulator the moment a second one exists.
+    """
+    if avd:
+        return serial_for_avd(avd)
+    serials = running_serials()
+    return serials[0] if serials else None
 
 
 def is_booted(serial: str) -> bool:
@@ -183,7 +225,10 @@ def start(avd: Optional[str] = None, timeout: Optional[float] = None) -> str:
     deadline = time.monotonic() + (timeout or config.EMULATOR_BOOT_TIMEOUT_SEC)
     serial = None
     while time.monotonic() < deadline:
-        serial = serial or running_serial()
+        # Scoped to this AVD by name, not "whichever serial adb lists" - a
+        # second emulator (a different account, already up) would otherwise
+        # look like this one having finished booting the instant it appears.
+        serial = serial or serial_for_avd(name)
         if serial and is_ready(serial):
             log.info("emulator %s is up and ready", serial)
             # A just-booted emulator is still finishing background work, and
@@ -214,37 +259,50 @@ def wake(serial: str) -> None:
 
 def ensure_running(avd: Optional[str] = None) -> str:
     """
-    Return a usable emulator serial, starting one only if needed.
+    Return a usable emulator serial for this AVD, starting one only if needed.
 
     Reusing a running emulator matters: booting a second copy of the same AVD
     fails outright, and a cold boot costs a minute that a patrol should not pay
-    on every round.
+    on every round. Resolved to a concrete AVD name up front (``pick_avd``)
+    and looked up by that name specifically - with several emulators possibly
+    running side by side (one per account), "reuse whatever is running" would
+    just as happily reuse someone else's.
     """
-    serial = running_serial()
+    name = pick_avd(avd)
+    serial = serial_for_avd(name)
     if serial:
         if not is_ready(serial):
-            log.info("an emulator is present but still starting - waiting")
+            log.info("emulator for %r is present but still starting - waiting", name)
             if not wait_until_ready(serial):
                 raise EmulatorError(
                     f"emulator {serial} booted but never became usable "
                     "(no focused window or package manager)"
                 )
-        log.info("reusing the emulator already running (%s)", serial)
+        log.info("reusing the emulator already running for %r (%s)", name, serial)
         wake(serial)
         return serial
-    return start(avd)
+    return start(name)
 
 
-def stop(serial: Optional[str] = None, timeout: float = 60.0) -> None:
+def stop(
+    serial: Optional[str] = None, avd: Optional[str] = None, timeout: float = 60.0
+) -> None:
     """
-    Shut the emulator down and wait for it to actually go.
+    Shut down one specific emulator and wait for it to actually go.
+
+    Pass ``serial`` when it is already known - cheapest and unambiguous. Pass
+    ``avd`` to resolve it by AVD name instead. Passing neither falls back to
+    "whichever emulator adb lists first", which used to be the only option
+    and is safe only when a single emulator is ever running on this host -
+    with several up at once (one per account), that could stop someone else's.
 
     ``adb emu kill`` is the polite route; a wedged emulator can ignore it, so
     the process is killed outright if the serial is still listed afterwards.
     Starting a second copy of an AVD that has not finished dying fails with a
     lock-file error, which is why this waits rather than returning at once.
     """
-    serial = serial or running_serial()
+    if not serial:
+        serial = serial_for_avd(avd) if avd else running_serial()
     if not serial:
         return
     log.info("stopping emulator %s", serial)
@@ -253,9 +311,12 @@ def stop(serial: Optional[str] = None, timeout: float = 60.0) -> None:
     except Exception as exc:                     # pragma: no cover - best effort
         log.debug("emu kill failed: %s", exc)
 
+    # Checked against this one captured serial, not "is anything still
+    # running" - another instance's emulator staying up is expected and must
+    # not be mistaken for this one failing to die.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if running_serial() != serial:
+        if serial not in running_serials():
             return
         time.sleep(2.0)
 
@@ -299,9 +360,9 @@ def tune_avd(avd: Optional[str] = None, apply: bool = False) -> dict:
     changes = {k: (settings.get(k), v) for k, v in wanted.items() if settings.get(k) != v}
 
     if apply and changes:
-        if running_serial():
+        if serial_for_avd(name):
             raise EmulatorError(
-                "stop the emulator before tuning it - it rewrites config.ini "
+                f"stop {name!r} before tuning it - it rewrites config.ini "
                 "when it exits and would undo these changes"
             )
         backup = path.with_suffix(".ini.backup")
@@ -352,9 +413,9 @@ def _cli(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
 
     if args.stop:
-        serial = running_serial()
+        serial = running_serial(args.avd)
         if not serial:
-            print("no emulator running")
+            print(f"no emulator running{f' for {args.avd!r}' if args.avd else ''}")
             return 0
         _adb("-s", serial, "emu", "kill")
         print(f"stopping {serial}")
@@ -377,7 +438,12 @@ def _cli(argv=None) -> int:
         return 0
 
     print(f"AVDs: {', '.join(list_avds())}")
-    print(f"running: {running_serial() or 'none'}")
+    serials = running_serials()
+    if not serials:
+        print("running: none")
+    else:
+        for serial in serials:
+            print(f"running: {serial} (avd: {_avd_name_of(serial) or 'unknown'})")
     return 0
 
 

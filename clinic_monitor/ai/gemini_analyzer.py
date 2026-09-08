@@ -52,7 +52,10 @@ Camera: {camera}
 Local time: {timestamp}
 On-device detector found: {detections}
 
-Look at the image and answer:
+Look at the image and answer the core questions, then check the facility
+checklist below for anything this particular frame actually shows.
+
+Core questions:
 - What is happening?
 - Is the clinic open?
 - Is staff present?
@@ -60,14 +63,63 @@ Look at the image and answer:
 - Is anything unusual happening?
 - Is immediate attention required?
 
+Facility & compliance checklist - only judge items the camera angle actually
+shows; skip anything not visible in this frame rather than guessing.
+
+Outdoor / exterior views (parking area, compound wall, entrance):
+- Parking area clean, organized, adequate space for patient vehicles, no
+  waterlogging or muddy patches on the access route.
+- Compound wall / perimeter clean and litter-free, no garbage dumps or
+  overflowing waste bins near the premises, no dumped construction debris.
+  Outdoor dustbins covered is good; overflowing or uncovered is not.
+
+Indoor - reception / waiting area:
+- Floor mopped and clean, walls/ceiling free of stains and cobwebs,
+  furniture wiped and dust-free, indoor waste bins covered and not
+  overflowing.
+
+Indoor - clinical / pharmacy areas:
+- Medical waste segregated into yellow/red/blue bins per protocol.
+- Diagnostic / sample collection area disinfected and tidy.
+- Pharmacy shelves neat, organized, and labeled.
+- Hand sanitizer dispensers filled and functional at entry points.
+
+Staff appearance - only apply between {open_time} and {close_time} clinic
+hours, and only if the image is in color (skip on a greyscale/IR frame):
+- Every staff member should be wearing the blue CureBay apron/uniform.
+  Anyone in the room NOT wearing that blue apron is a patient, not staff -
+  flag this only when a room clearly has people present and nobody at all
+  is wearing the apron.
+- Aprons/uniforms should be clean, ironed, and free of stains.
+- Staff should wear a visible ID/name badge.
+- Female staff should wear a head cover where applicable.
+- During sample or blood collection specifically, staff must wear a mask
+  and gloves.
+- No staff should be using a mobile phone or eating while a patient is
+  present or being attended to.
+
+Camera health:
+- If this camera's own feed looks frozen, blank, heavily obstructed, or
+  otherwise clearly not working, say so.
+
 Rules:
 - Judge only what is visible. Do not speculate about identities.
 - The image is a phone screenshot of a CCTV grid, so it may be low quality.
-- Severity: "Low" = normal activity; "Medium" = something worth a look
-  (crowding, long wait, someone unattended, after-hours presence);
+- Severity:
+  "Low" = normal activity, or a minor/cosmetic checklist item (uniform not
+    ironed, pharmacy shelf untidy, sanitizer empty, minor outdoor litter).
+  "Medium" = something worth a look (crowding, long wait, someone
+    unattended, after-hours presence, waiting area not clean, staff
+    missing a badge or head cover, staff apron missing during clinic
+    hours, unclean compound wall or parking area).
   "High" = possible emergency (fall, collapse, fight, fire, theft, medical
-  distress) or anything needing immediate human attention.
+    distress), a serious compliance breach (medical waste not segregated,
+    sample area not disinfected, no mask/gloves during blood collection,
+    staff on a phone or eating with a patient present, camera feed not
+    working), or anything else needing immediate human attention.
 - If the view is unclear or empty, use severity "Low" and say so.
+- Name the specific checklist item that drove the severity in "reason" -
+  do not just repeat "unusual activity".
 
 Return JSON only, no markdown, exactly these keys:
 {{
@@ -333,6 +385,8 @@ class GeminiAnalyzer:
             camera=camera_name,
             timestamp=timestamp or time.strftime("%Y-%m-%d %H:%M:%S"),
             detections=summary,
+            open_time=config.EXPECTED_OPEN,
+            close_time=config.EXPECTED_CLOSE,
             extra=(
                 EXTRA_QUESTION_BLOCK.format(question=extra_question.strip())
                 if extra_question

@@ -45,7 +45,7 @@ gcloud compute instances create clinic-monitor \
 
 Sizing comes from what the system actually uses: the AVD alone is configured
 for 4 GB, plus YOLO, plus the OS. 4 vCPU is the realistic floor - the emulator
-hangs under load, and a hung app is the main failure mode (§9).
+hangs under load, and a hung app is the main failure mode (§10).
 
 Do **not** give it an external IP you then open up. Reach it over SSH only.
 
@@ -182,16 +182,66 @@ It binds to **127.0.0.1 deliberately**. It has no login of its own and shows
 clinic footage, so it must never be exposed directly. Tunnel to it:
 
 ```bash
-gcloud compute ssh clinic-monitor --zone=asia-south1-a -- -L 8000:localhost:8000
+gcloud compute ssh clinic-monitor --zone=asia-south1-a --ssh-flag="-L 8000:localhost:8000"
 # then open http://localhost:8000 on your laptop
 ```
+
+(`--ssh-flag` rather than a bare `-- -L ...`: gcloud on Windows shells out to
+PuTTY/plink, not OpenSSH, and plink does not accept `-L` the way `-- -L`
+assumes - `--ssh-flag` is the one form that works on both backends.)
 
 For team access, put an authenticating proxy in front - Identity-Aware Proxy is
 the native option - rather than opening the port.
 
 ---
 
-## 8. Keep it honest with the watchdog
+## 8. Add a second cluster (the collector)
+
+One dashboard can show more than one cluster (a second Hik-Connect
+account/emulator on its own VM - e.g. a Bhubaneswar cluster alongside this
+Puri one) without a shared network database. Every VM keeps writing to its
+own local SQLite database exactly as it does today; it additionally
+best-effort pushes a copy of every write to one central collector, which is
+just this VM's own dashboard process listening on a second port.
+
+```bash
+# on THIS VM (the one already running the dashboard) - generate a token,
+# add it to .env, then install the collector service
+python3 -c "import secrets; print(secrets.token_hex(32))"   # -> CM_COLLECTOR_TOKEN
+
+cat >> .env <<'EOF'
+CM_COLLECTOR_TOKEN=<paste the token above>
+EOF
+
+sudo cp deploy/clinic-collector@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "clinic-collector@$USER"
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8001/collect/health
+```
+
+It binds `0.0.0.0:8001` deliberately - unlike the dashboard, it must be
+reachable from other VMs on the internal network, so it carries its own
+bearer-token check on every request instead of hiding behind localhost. Do
+**not** open port 8001 to the internet; it only needs to be reachable from
+other VMs inside this project's VPC, which the default internal firewall
+rule already covers.
+
+On every *other* cluster's VM, set in `.env` (leave this VM's own `.env`
+alone - it already writes straight into the database the collector shares):
+
+```bash
+CM_STATE_NAME=Odisha            # or whichever state that cluster is in
+CM_CLUSTER_NAME=Bhubaneswar     # must match clusters.json exactly
+CM_COLLECTOR_URL=http://<this VM's internal IP>:8001
+CM_COLLECTOR_TOKEN=<same token as above>
+```
+
+Then restart that VM's `clinic-patrol` service. Its events start appearing
+on this dashboard within one patrol round - no dashboard restart needed.
+
+---
+
+## 9. Keep it honest with the watchdog
 
 ```bash
 sudo tee /etc/cron.d/clinic-watchdog >/dev/null <<'EOF'
@@ -220,7 +270,7 @@ everything running, nothing being captured.
 
 ---
 
-## 9. Keep the emulator young with a periodic restart
+## 10. Keep the emulator young with a periodic restart
 
 ```bash
 sudo tee /etc/cron.d/clinic-periodic-restart >/dev/null <<'EOF'
@@ -251,7 +301,7 @@ sudo systemctl status "clinic-patrol@$USER" --no-pager   # Active since just now
 
 ---
 
-## 10. What will go wrong
+## 11. What will go wrong
 
 Honest list, from what we have already hit in practice:
 
@@ -270,7 +320,7 @@ needs a person.
 
 ---
 
-## 11. Running costs
+## 12. Running costs
 
 | Item | Approximate |
 | --- | --- |
@@ -284,7 +334,7 @@ spot/preemptible instances - eviction mid-patrol defeats the purpose.
 
 ---
 
-## 12. Updating
+## 13. Updating
 
 ```bash
 cd /opt/clinic-monitoring && git pull

@@ -1,0 +1,24 @@
+[Unit]
+Description=Clinic monitoring multi-cluster collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/clinic-monitoring/clinic_monitor
+EnvironmentFile=-/opt/clinic-monitoring/clinic_monitor/.env
+# Unlike the dashboard, this one must be reachable from OTHER cluster VMs on
+# the internal network, not just localhost - it carries its own bearer-token
+# check on every request instead (see dashboard/collector.py). Refuses to
+# start at all if CM_COLLECTOR_TOKEN is unset, rather than starting up as an
+# open write endpoint.
+ExecStart=/opt/clinic-monitoring/.venv/bin/python dashboard/collector.py
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/opt/clinic-monitoring/clinic_monitor/logs/collector.log
+StandardError=append:/opt/clinic-monitoring/clinic_monitor/logs/collector.log
+
+[Install]
+WantedBy=multi-user.target

@@ -52,3 +52,36 @@ def push(kind: str, payload: Dict[str, Any]) -> None:
         # Never let a network problem elsewhere stop this VM's own patrol -
         # the row is already safe in the local database either way.
         log.debug("collector push failed (%s): %s", kind, exc)
+
+
+def push_screenshot(relative_path: str, data: bytes) -> None:
+    """
+    Send one screenshot's raw JPEG bytes to the central collector, if one is
+    configured.
+
+    An event row only ever carries a screenshot_path *string* - without this,
+    the collector's shared dashboard would try to serve that path from its
+    own screenshots directory, where a file pushed from a different cluster's
+    VM was never written, and show a broken image for every event that
+    originated anywhere but the collector's own machine.
+    """
+    if not config.COLLECTOR_URL:
+        return
+    try:
+        resp = requests.post(
+            f"{config.COLLECTOR_URL}/collect/screenshot",
+            params={"path": relative_path},
+            data=data,
+            headers={
+                "Authorization": f"Bearer {config.COLLECTOR_TOKEN}",
+                "Content-Type": "application/octet-stream",
+            },
+            timeout=config.COLLECTOR_TIMEOUT_SEC,
+        )
+        if resp.status_code >= 400:
+            log.warning(
+                "collector rejected screenshot push for %s: %s %s",
+                relative_path, resp.status_code, resp.text[:200],
+            )
+    except requests.RequestException as exc:
+        log.debug("collector screenshot push failed (%s): %s", relative_path, exc)

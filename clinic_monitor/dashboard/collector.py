@@ -119,6 +119,29 @@ def create_app(db: "Database | None" = None) -> Flask:
             return jsonify(error="insert failed"), 500
         return jsonify(ok=True), 201
 
+    @app.route("/collect/screenshot", methods=["POST"])
+    def collect_screenshot():
+        relative = request.args.get("path", "")
+        if not relative:
+            return jsonify(error="missing 'path'"), 400
+        root = Path(config.SCREENSHOT_DIR).resolve()
+        target = (root / relative).resolve()
+        try:
+            # Never let a pushed path write outside the screenshots directory.
+            target.relative_to(root)
+        except ValueError:
+            return jsonify(error="invalid path"), 400
+        data = request.get_data()
+        if not data:
+            return jsonify(error="empty body"), 400
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as exc:
+            log.error("collector: failed to write pushed screenshot %s: %s", target, exc)
+            return jsonify(error="write failed"), 500
+        return jsonify(ok=True), 201
+
     @app.route("/collect/health", methods=["GET"])
     def health():
         # Still goes through the same before_request auth check as every

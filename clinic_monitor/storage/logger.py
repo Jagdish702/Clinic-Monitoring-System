@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 
 import config
+from storage import collector_client
 from storage.database import Database
 
 log = logging.getLogger(__name__)
@@ -111,6 +112,18 @@ class EventLogger:
             if frame is not None
             else None
         )
+        if screenshot_path:
+            # No-op when no collector is configured (single-VM mode); when
+            # one is, this is what lets the shared dashboard actually
+            # resolve /screenshots/<path> for an event pushed from a
+            # different cluster's VM instead of showing a broken image.
+            try:
+                data = self.absolute_screenshot_path(screenshot_path).read_bytes()
+            except OSError as exc:
+                log.debug("could not reread screenshot %s for the collector: %s",
+                          screenshot_path, exc)
+            else:
+                collector_client.push_screenshot(screenshot_path, data)
 
         payload: Dict[str, Any] = {
             "timestamp": when.astimezone().isoformat(timespec="seconds"),

@@ -118,7 +118,13 @@ def test_storage() -> bool:
     print("\n[4] storage (sqlite + screenshots)")
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
-        db = Database(tmp_path / "test.db")
+        # push=False: this database and its screenshots live only in a temp
+        # dir that is gone the moment this function returns. On a deployed
+        # VM with CM_COLLECTOR_URL set, the default push=True would leak
+        # these synthetic "Test Clinic" rows into the shared collector's
+        # database as if they were a real alert - with a screenshot_path
+        # nothing else can ever resolve.
+        db = Database(tmp_path / "test.db", push=False)
         logger = EventLogger(db=db, screenshot_dir=tmp_path / "shots")
         event_id = logger.log_event(
             clinic_name="Test Clinic",

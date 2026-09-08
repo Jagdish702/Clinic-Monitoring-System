@@ -259,6 +259,32 @@ DASHBOARD_REFRESH_SEC = int(os.getenv("CM_DASHBOARD_REFRESH", "5"))
 DASHBOARD_PAGE_SIZE = 100
 
 # --------------------------------------------------------------------------- #
+# Cluster identity: which state and which cluster this VM's emulator/account
+# is. A single VM is always exactly one cluster (one Hik-Connect account, one
+# emulator), so this is set once per VM, not per clinic or per event - every
+# row this VM writes gets stamped with it automatically (see
+# storage/database.py's insert_event/insert_observation/record_clinic_status).
+# Blank on today's single-cluster deployment is fine: rows just carry no
+# state/cluster until it is set, same as before this existed.
+# --------------------------------------------------------------------------- #
+STATE_NAME = os.getenv("CM_STATE_NAME", "")
+CLUSTER_NAME = os.getenv("CM_CLUSTER_NAME", "")
+
+# --------------------------------------------------------------------------- #
+# Multi-VM fan-in: each patrol VM keeps writing to its own local database
+# unchanged, and best-effort pushes a copy of every write to one central
+# collector so many clusters can share a single dashboard. Empty means
+# single-VM mode - collector_client.push() becomes a no-op, so a deployment
+# that never sets this behaves exactly as it did before this existed.
+# --------------------------------------------------------------------------- #
+COLLECTOR_URL = os.getenv("CM_COLLECTOR_URL", "").rstrip("/")
+COLLECTOR_TOKEN = os.getenv("CM_COLLECTOR_TOKEN", "")
+COLLECTOR_TIMEOUT_SEC = float(os.getenv("CM_COLLECTOR_TIMEOUT", "5"))
+# Listener side (runs once, on the dashboard VM only).
+COLLECTOR_HOST = os.getenv("CM_COLLECTOR_HOST", "0.0.0.0")
+COLLECTOR_PORT = int(os.getenv("CM_COLLECTOR_PORT", "8001"))
+
+# --------------------------------------------------------------------------- #
 # Clinic / camera layout
 # --------------------------------------------------------------------------- #
 

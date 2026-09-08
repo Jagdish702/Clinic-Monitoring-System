@@ -45,6 +45,11 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         severity = request.args.get("severity", "all")
         clinic = request.args.get("clinic", "all")
         camera = request.args.get("camera", "all")
+        # "all" at this level, same convention as clinic/camera above, means
+        # "every state" / "every cluster in the selected state" - not a
+        # literal value to match against.
+        state = request.args.get("state", "all")
+        cluster = request.args.get("cluster", "all")
         try:
             limit = min(int(request.args.get("limit", config.DASHBOARD_PAGE_SIZE)), 500)
         except ValueError:
@@ -56,26 +61,60 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 since = time.time() - float(hours) * 3600
             except ValueError:
                 since = None
-        return severity, clinic, camera, limit, since
+        return severity, clinic, camera, state, cluster, limit, since
 
     # -- pages ------------------------------------------------------------- #
     @app.route("/")
     def index():
-        severity, clinic, camera, limit, since = _filters()
-        events = database.get_events(
-            severity=severity,
-            clinic_name=clinic,
-            camera_name=camera,
-            since_epoch=since,
-            limit=limit,
+        severity, clinic, camera, state, cluster, limit, since = _filters()
+        events = _annotate(
+            database.get_events(
+                severity=severity,
+                clinic_name=clinic,
+                camera_name=camera,
+                state=state,
+                cluster=cluster,
+                since_epoch=since,
+                limit=limit,
+            )
         )
+        total_matching = database.count_events(
+            severity=severity, clinic_name=clinic, camera_name=camera,
+            state=state, cluster=cluster, since_epoch=since,
+        )
+        # Each level narrowed by the one above it - state=all/cluster=all
+        # (query param unset) is treated as "no filter" by group_counts(), so
+        # a fresh page load with nothing picked yet shows every clinic exactly
+        # as it did before this feature existed. states comes back empty on
+        # a deployment that has never set CM_STATE_NAME/CM_CLUSTER_NAME
+        # anywhere, and the template hides the whole state/cluster row in
+        # that case - not a partial, confusing hierarchy with one entry.
+        states = database.group_counts("state")
+        clusters = (
+            database.group_counts("cluster", state=state) if state != "all" else []
+        )
+        clinics = database.group_counts(
+            "clinic_name",
+            state=None if state == "all" else state,
+            cluster=None if cluster == "all" else cluster,
+        )
+
+        day = _today()
+        summary = database.dashboard_summary(day)
+
         return render_template(
             "index.html",
             events=events,
+            total_matching=total_matching,
             counts=database.counts_by_severity(),
-            clinics=database.distinct("clinic_name"),
+            summary=summary,
+            states=states,
+            clusters=clusters,
+            clinics=clinics,
             severity=severity,
             clinic=clinic,
+            state=state,
+            cluster=cluster,
             severities=SEVERITIES,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
@@ -113,17 +152,23 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
     @app.route("/api/events")
     def api_events():
-        severity, clinic, camera, limit, since = _filters()
+        severity, clinic, camera, state, cluster, limit, since = _filters()
         events = _annotate(
             database.get_events(
                 severity=severity,
                 clinic_name=clinic,
                 camera_name=camera,
+                state=state,
+                cluster=cluster,
                 since_epoch=since,
                 limit=limit,
             )
         )
-        return jsonify({"count": len(events), "events": events})
+        total = database.count_events(
+            severity=severity, clinic_name=clinic, camera_name=camera,
+            state=state, cluster=cluster, since_epoch=since,
+        )
+        return jsonify({"count": len(events), "total": total, "events": events})
 
     @app.route("/api/stats")
     def api_stats():

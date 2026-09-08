@@ -47,6 +47,11 @@ openpyxl==3.1.5
 # Reads .env
 python-dotenv==1.0.1
 
+# Stage 6b - best-effort push to the collector in a multi-VM deployment
+# (storage/collector_client.py). A no-op, unused import path, unless
+# CM_COLLECTOR_URL is set - single-VM deployments never touch this.
+requests==2.34.2
+
 # Optional: only for the "scrcpy" capture backend, which mirrors the phone to a
 # desktop window instead of using adb screencap. Not needed by default.
 # mss==9.0.2

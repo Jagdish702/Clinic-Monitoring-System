@@ -12,12 +12,14 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import config
+from storage import collector_client
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +60,21 @@ CREATE TABLE IF NOT EXISTS events (
     motion_score        REAL,
     detections          TEXT,
     source              TEXT    NOT NULL DEFAULT 'gemini',
-    acknowledged        INTEGER NOT NULL DEFAULT 0
+    acknowledged        INTEGER NOT NULL DEFAULT 0,
+    -- Which cluster (one Hik-Connect account, one emulator) and which state
+    -- it belongs to - stamped from this VM's own CM_STATE_NAME/
+    -- CM_CLUSTER_NAME, not supplied by callers. A single VM is always
+    -- exactly one cluster, so there is nothing to get wrong or forget here.
+    state               TEXT,
+    cluster             TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts       ON events (ts_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity, ts_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_events_clinic   ON events (clinic_name, ts_epoch DESC);
+-- idx_events_cluster is created in _migrate(), not here: on a database that
+-- predates the state/cluster columns, CREATE TABLE IF NOT EXISTS above is a
+-- no-op (the table already exists), so an index on those columns right here
+-- would run before _migrate() has had a chance to add them.
 
 -- One row per camera per patrol visit, whether or not anything happened.
 -- `events` only records things worth alerting on; a daily report needs the
@@ -94,10 +106,13 @@ CREATE TABLE IF NOT EXISTS observations (
     -- consulting-room camera shows.
     staff_present   INTEGER DEFAULT 0,
     patient_present INTEGER DEFAULT 0,
-    source          TEXT    NOT NULL DEFAULT 'patrol'
+    source          TEXT    NOT NULL DEFAULT 'patrol',
+    state           TEXT,
+    cluster         TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_obs_day    ON observations (day, clinic_name, ts_epoch);
-CREATE INDEX IF NOT EXISTS idx_obs_clinic ON observations (clinic_name, ts_epoch);
+CREATE INDEX IF NOT EXISTS idx_obs_day     ON observations (day, clinic_name, ts_epoch);
+CREATE INDEX IF NOT EXISTS idx_obs_clinic  ON observations (clinic_name, ts_epoch);
+-- idx_obs_cluster is created in _migrate() - same reason as idx_events_cluster above.
 
 -- Whether the clinic's device could be reached at all, recorded on every
 -- visit. Without this a skipped clinic leaves no trace: the patrol prints
@@ -111,7 +126,9 @@ CREATE TABLE IF NOT EXISTS clinic_status (
     day         TEXT    NOT NULL,
     clinic_name TEXT    NOT NULL,
     status      TEXT    NOT NULL,          -- 'online' | 'offline'
-    reason      TEXT
+    reason      TEXT,
+    state       TEXT,
+    cluster     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_status_day ON clinic_status (day, clinic_name, ts_epoch);
 """
@@ -121,7 +138,7 @@ OBSERVATION_COLUMNS = (
     "frames", "motion_frames", "max_persons", "health_status",
     "brightness", "detail", "edge_ratio", "flat_ratio", "frame_change",
     "clinic_status", "severity", "unusual", "description",
-    "staff_present", "patient_present", "source",
+    "staff_present", "patient_present", "source", "state", "cluster",
 )
 
 EVENT_COLUMNS = (
@@ -143,16 +160,26 @@ EVENT_COLUMNS = (
     "motion_score",
     "detections",
     "source",
+    "state",
+    "cluster",
 )
 
 
 class Database:
     """Small helper around the ``events`` table."""
 
-    def __init__(self, path: Optional[Path] = None) -> None:
+    def __init__(self, path: Optional[Path] = None, push: bool = True) -> None:
         self.path = Path(path or config.DB_PATH)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
+        # False for the collector's own database (dashboard/collector.py):
+        # a write landing there is already the final copy. Pushing it onward
+        # would try to reach the collector from inside its own request
+        # handler - at best a wasted round trip, at worst a self-loop if a
+        # collector VM's .env is ever accidentally given its own
+        # CM_COLLECTOR_URL. Relying on operators to never set that env var
+        # is not a safeguard; this flag is.
+        self._push = push
         self.init_schema()
 
     # -- connection handling ---------------------------------------------- #
@@ -189,6 +216,16 @@ class Database:
             "observations": {
                 "staff_present": "INTEGER DEFAULT 0",
                 "patient_present": "INTEGER DEFAULT 0",
+                "state": "TEXT",
+                "cluster": "TEXT",
+            },
+            "events": {
+                "state": "TEXT",
+                "cluster": "TEXT",
+            },
+            "clinic_status": {
+                "state": "TEXT",
+                "cluster": "TEXT",
             },
         }
         for table, columns in wanted.items():
@@ -203,6 +240,18 @@ class Database:
                 with self.conn as conn:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
 
+        # Deferred from SCHEMA to here deliberately: on a database that
+        # predates state/cluster, these columns only exist once the loop
+        # above has run - an index on them declared in the static SCHEMA
+        # script would run first and fail on every existing deployment.
+        with self.conn as conn:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_cluster ON events (state, cluster)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_obs_cluster ON observations (state, cluster)"
+            )
+
     def close(self) -> None:
         existing = getattr(self._local, "conn", None)
         if existing is not None:
@@ -211,7 +260,16 @@ class Database:
 
     # -- writes ------------------------------------------------------------ #
     def insert_event(self, event: Dict[str, Any]) -> int:
+        # Resolved once, used for both the local row and the pushed copy, so
+        # the collector inserts the *originating* VM's state/cluster as-is
+        # rather than falling back to its own (blank) identity - a collector
+        # aggregates many clusters, so it has none of its own to stamp with.
+        state = event.get("state") or config.STATE_NAME
+        cluster = event.get("cluster") or config.CLUSTER_NAME
+        pushed = {**event, "state": state, "cluster": cluster}
+
         row = {key: event.get(key) for key in EVENT_COLUMNS}
+        row["state"], row["cluster"] = state, cluster
         if isinstance(row.get("detections"), (list, dict)):
             row["detections"] = json.dumps(row["detections"])
         for flag in (
@@ -226,10 +284,21 @@ class Database:
         sql = f"INSERT INTO events ({', '.join(EVENT_COLUMNS)}) VALUES ({placeholders})"
         with self.conn as conn:
             cursor = conn.execute(sql, row)
-            return int(cursor.lastrowid)
+            row_id = int(cursor.lastrowid)
+        if self._push:
+            # Pushed as the resolved-but-otherwise-original event - not
+            # `row` - so the collector's own insert_event() does its own
+            # serialization fresh, the same as any other caller.
+            collector_client.push("events", pushed)
+        return row_id
 
     def insert_observation(self, observation: Dict[str, Any]) -> int:
+        state = observation.get("state") or config.STATE_NAME
+        cluster = observation.get("cluster") or config.CLUSTER_NAME
+        pushed = {**observation, "state": state, "cluster": cluster}
+
         row = {key: observation.get(key) for key in OBSERVATION_COLUMNS}
+        row["state"], row["cluster"] = state, cluster
         for flag in ("unusual", "staff_present", "patient_present"):
             row[flag] = int(bool(row.get(flag)))
         placeholders = ", ".join(f":{c}" for c in OBSERVATION_COLUMNS)
@@ -238,7 +307,10 @@ class Database:
             f"VALUES ({placeholders})"
         )
         with self.conn as conn:
-            return int(conn.execute(sql, row).lastrowid)
+            row_id = int(conn.execute(sql, row).lastrowid)
+        if self._push:
+            collector_client.push("observations", pushed)
+        return row_id
 
     def get_observations(
         self, day: str, clinic_name: Optional[str] = None
@@ -262,13 +334,17 @@ class Database:
         status: str,
         when: datetime,
         reason: str = "",
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
     ) -> None:
         """Note whether a clinic's device answered on this visit."""
+        state = state or config.STATE_NAME
+        cluster = cluster or config.CLUSTER_NAME
         with self.conn as conn:
             conn.execute(
                 "INSERT INTO clinic_status "
-                "(timestamp, ts_epoch, day, clinic_name, status, reason) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(timestamp, ts_epoch, day, clinic_name, status, reason, state, cluster) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     when.astimezone().isoformat(timespec="seconds"),
                     when.timestamp(),
@@ -276,8 +352,23 @@ class Database:
                     clinic_name,
                     status,
                     reason,
+                    state,
+                    cluster,
                 ),
             )
+        if not self._push:
+            return
+        collector_client.push(
+            "clinic_status",
+            {
+                "clinic_name": clinic_name,
+                "status": status,
+                "when": when.astimezone().isoformat(timespec="seconds"),
+                "reason": reason,
+                "state": state,
+                "cluster": cluster,
+            },
+        )
 
     def offline_periods(self, day: str) -> List[Dict[str, Any]]:
         """
@@ -402,16 +493,16 @@ class Database:
             conn.execute("UPDATE events SET acknowledged = 1 WHERE id = ?", (event_id,))
 
     # -- reads -------------------------------------------------------------- #
-    def get_events(
-        self,
+    @staticmethod
+    def _event_clauses(
         severity: Optional[str] = None,
         clinic_name: Optional[str] = None,
         camera_name: Optional[str] = None,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
         since_epoch: Optional[float] = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        """Newest first, optionally filtered."""
+    ) -> tuple:
+        """Shared WHERE-clause building for get_events/count_events."""
         clauses: List[str] = []
         params: List[Any] = []
         if severity and severity.lower() != "all":
@@ -423,6 +514,12 @@ class Database:
         if camera_name and camera_name.lower() != "all":
             clauses.append("camera_name = ?")
             params.append(camera_name)
+        if state and state.lower() != "all":
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster and cluster.lower() != "all":
+            clauses.append("cluster = ?")
+            params.append(cluster)
         if since_epoch:
             clauses.append("ts_epoch >= ?")
             params.append(since_epoch)
@@ -430,7 +527,23 @@ class Database:
         if hide:
             clauses.append(hide)
             params.extend(hide_params)
+        return clauses, params
 
+    def get_events(
+        self,
+        severity: Optional[str] = None,
+        clinic_name: Optional[str] = None,
+        camera_name: Optional[str] = None,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+        since_epoch: Optional[float] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Newest first, optionally filtered."""
+        clauses, params = self._event_clauses(
+            severity, clinic_name, camera_name, state, cluster, since_epoch
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([int(limit), int(offset)])
         # Newest visit first, but cameras within a visit keep the order they
@@ -443,6 +556,26 @@ class Database:
         )
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_dict(row) for row in rows]
+
+    def count_events(
+        self,
+        severity: Optional[str] = None,
+        clinic_name: Optional[str] = None,
+        camera_name: Optional[str] = None,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+        since_epoch: Optional[float] = None,
+    ) -> int:
+        """
+        How many rows match a filter set, ignoring limit/offset - used for the
+        "Showing X of Y" footer, which needs the true total, not the page size.
+        """
+        clauses, params = self._event_clauses(
+            severity, clinic_name, camera_name, state, cluster, since_epoch
+        )
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        row = self.conn.execute(f"SELECT COUNT(*) AS n FROM events {where}", params).fetchone()
+        return int(row["n"])
 
     def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
@@ -459,26 +592,148 @@ class Database:
         if hide:
             clauses.append(hide)
             params.extend(hide_params)
-        if clauses:
-            sql += f" WHERE {' AND '.join(clauses)}"
-        sql += " GROUP BY severity"
+        base_where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql += base_where + " GROUP BY severity"
         counts = {"High": 0, "Medium": 0, "Low": 0}
         for row in self.conn.execute(sql, params):
             counts[row["severity"]] = row["n"]
         counts["Total"] = sum(counts[s] for s in ("High", "Medium", "Low"))
+        resolved = self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM events{base_where}"
+            f"{' AND' if base_where else ' WHERE'} acknowledged = 1",
+            params,
+        ).fetchone()
+        counts["Resolved"] = resolved["n"]
+        counts["Active"] = counts["Total"] - counts["Resolved"]
         return counts
 
-    def distinct(self, column: str) -> List[str]:
-        if column not in {"clinic_name", "camera_name"}:
-            raise ValueError(f"cannot list distinct values of {column!r}")
+    def group_counts(
+        self,
+        column: str,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Same narrowing as distinct(), but with an event count per value - the
+        number shown next to each state/cluster/clinic row in the sidebar tree.
+        """
+        if column not in {"clinic_name", "camera_name", "state", "cluster"}:
+            raise ValueError(f"cannot group by {column!r}")
+        clauses: List[str] = []
+        params: List[Any] = []
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
         hide, hide_params = ignored_clause()
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
         rows = self.conn.execute(
-            f"SELECT DISTINCT {column} AS v FROM events "
-            + (f"WHERE {hide} " if hide else "")
-            + "ORDER BY v",
-            hide_params,
+            f"SELECT {column} AS v, COUNT(*) AS n FROM events {where}"
+            f"GROUP BY {column} ORDER BY v",
+            params,
         ).fetchall()
-        return [row["v"] for row in rows]
+        return [{"value": r["v"], "count": r["n"]} for r in rows if r["v"]]
+
+    def dashboard_summary(self, day: str) -> Dict[str, Any]:
+        """
+        Real numbers for the dashboard's stat-card row: how many clinics and
+        cameras answered today, how many alerts fired today, and today's
+        average model confidence. Every number here comes from data actually
+        written today - a quiet day before any patrol has run reads as zero
+        clinics checked, not a fabricated "all clear".
+        """
+        status = self.clinic_status_summary(day)
+        clinics_total = len(status)
+        clinics_offline = sum(1 for s in status.values() if s["current"] == "offline")
+
+        hide, hide_params = ignored_clause()
+        cam_rows = self.conn.execute(
+            "SELECT clinic_name, camera_name,"
+            " COUNT(*) AS checks,"
+            " SUM(CASE WHEN health_status IN ('no_signal','frozen','obstructed')"
+            "     THEN 1 ELSE 0 END) AS bad"
+            " FROM observations WHERE day = ?"
+            + (f" AND {hide}" if hide else "")
+            + " GROUP BY clinic_name, camera_name",
+            (day, *hide_params),
+        ).fetchall()
+        cameras_total = len(cam_rows)
+        cameras_inactive = sum(
+            1 for r in cam_rows if r["checks"] and r["bad"] == r["checks"]
+        )
+
+        day_start = datetime.strptime(day, "%Y-%m-%d").timestamp()
+        day_end = day_start + 86400
+        clauses = ["ts_epoch >= ?", "ts_epoch < ?"]
+        params: List[Any] = [day_start, day_end]
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
+        where = " AND ".join(clauses)
+        alerts_today = self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM events WHERE {where}", params
+        ).fetchone()["n"]
+        alerts_last_hour = self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM events WHERE {where} AND ts_epoch >= ?",
+            (*params, time.time() - 3600),
+        ).fetchone()["n"]
+        avg_confidence = self.conn.execute(
+            f"SELECT AVG(confidence) AS avg FROM events "
+            f"WHERE {where} AND confidence IS NOT NULL",
+            params,
+        ).fetchone()["avg"]
+
+        return {
+            "clinics_total": clinics_total,
+            "clinics_offline": clinics_offline,
+            "clinics_online": clinics_total - clinics_offline,
+            "cameras_total": cameras_total,
+            "cameras_inactive": cameras_inactive,
+            "cameras_active": cameras_total - cameras_inactive,
+            "alerts_today": alerts_today,
+            "alerts_last_hour": alerts_last_hour,
+            "avg_confidence": avg_confidence,
+        }
+
+    def distinct(
+        self,
+        column: str,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Distinct values of one column, optionally narrowed to one state
+        and/or one cluster - the state -> cluster -> clinic drill-down chips
+        each call this once, each level narrowing on the one above it.
+        """
+        if column not in {"clinic_name", "camera_name", "state", "cluster"}:
+            raise ValueError(f"cannot list distinct values of {column!r}")
+        clauses: List[str] = []
+        params: List[Any] = []
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
+        hide, hide_params = ignored_clause()
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT DISTINCT {column} AS v FROM events {where}ORDER BY v",
+            params,
+        ).fetchall()
+        # NULL/blank filtered out - a row from before this feature existed,
+        # or from a VM that never set CM_STATE_NAME/CM_CLUSTER_NAME, has
+        # nothing to show as a chip.
+        return [row["v"] for row in rows if row["v"]]
 
     # -- maintenance -------------------------------------------------------- #
     def purge_older_than(self, days: int) -> List[str]:

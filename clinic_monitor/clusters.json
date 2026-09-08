@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "Known state -> cluster mapping for the multi-VM deployment (see",
+    "deploy/DEPLOY_GCP.md). Each cluster is one Hik-Connect account and one",
+    "emulator, on its own VM. When a VM is set up, its .env CM_STATE_NAME and",
+    "CM_CLUSTER_NAME must match one of these spellings exactly - a typo here",
+    "silently splits one cluster into two on the dashboard's",
+    "State -> Cluster -> Clinic drill-down, rather than erroring anywhere.",
+    "",
+    "Not read by any code yet - this is the reference list a human copies",
+    "from when configuring a new VM. Update it here first whenever a new",
+    "cluster is added, so it stays the one source of truth for spelling."
+  ],
+
+  "Odisha": [
+    "Nayagarh",
+    "Puri",
+    "Bhubaneswar",
+    "Berhampur",
+    "Cuttack",
+    "Balasore",
+    "Bhadrak",
+    "Keonjhar",
+    "Jaleswar",
+    "Bolangir",
+    "Rourkela"
+  ],
+
+  "Chhattisgarh": [
+    "Raipur",
+    "Bilaspur"
+  ]
+}

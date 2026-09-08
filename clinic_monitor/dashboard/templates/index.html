@@ -3,196 +3,400 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clinic Monitor — Alerts</title>
+<title>Clinic Monitor — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0f1216; --panel:#171b21; --panel-2:#1e242c; --line:#2a323c;
-    --text:#e6eaf0; --muted:#8b97a8;
-    --high:#ff4d4f; --medium:#ffa32e; --low:#3ecf8e; --accent:#4c8dff;
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --med-bg:#fff3d7;  --med-fg:#d29300;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --shadow-feed: 0 4px 6px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.16);
+    --shadow-btn: 0 2px 2px rgba(0,65,114,.08);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);
-       font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  header{position:sticky;top:0;z-index:10;background:var(--panel);
-         border-bottom:1px solid var(--line);padding:14px 20px}
-  .bar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
-  h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.2px}
-  h1 span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
-  .tiles{display:flex;gap:8px;flex-wrap:wrap}
-  .tile{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
-        padding:6px 12px;font-size:12px;color:var(--muted)}
-  .tile b{display:block;font-size:17px;color:var(--text);font-weight:600}
-  .tile.high b{color:var(--high)} .tile.medium b{color:var(--medium)} .tile.low b{color:var(--low)}
-  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
-  .chip{border:1px solid var(--line);background:var(--panel-2);color:var(--muted);
-        padding:5px 13px;border-radius:999px;text-decoration:none;font-size:13px}
-  .chip:hover{border-color:var(--accent);color:var(--text)}
-  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
-  .chip.active.high{background:var(--high);border-color:var(--high)}
-  .chip.active.medium{background:var(--medium);border-color:var(--medium);color:#221a08}
-  .chip.active.low{background:var(--low);border-color:var(--low);color:#06251a}
-  main{padding:20px;max-width:1180px;margin:0 auto}
-  .event{display:flex;gap:16px;background:var(--panel);border:1px solid var(--line);
-         border-left-width:4px;border-radius:10px;padding:14px;margin-bottom:12px}
-  .event.high{border-left-color:var(--high)}
-  .event.medium{border-left-color:var(--medium)}
-  .event.low{border-left-color:var(--low)}
-  .shot{width:230px;min-width:230px;height:140px;border-radius:8px;object-fit:cover;
-        background:var(--panel-2);border:1px solid var(--line)}
-  .shot.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
-  .body{flex:1;min-width:0}
-  .row1{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px}
-  .sev{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
-       padding:3px 9px;border-radius:5px}
-  .sev.high{background:rgba(255,77,79,.15);color:var(--high)}
-  .sev.medium{background:rgba(255,163,46,.15);color:var(--medium)}
-  .sev.low{background:rgba(62,207,142,.13);color:var(--low)}
-  .where{font-weight:600}
-  .when{color:var(--muted);font-size:12px;margin-left:auto}
-  .desc{margin:2px 0 8px;font-size:15px}
-  .reason{color:var(--muted);font-size:13px;margin-bottom:8px}
-  .meta{display:flex;flex-wrap:wrap;gap:6px}
-  .pill{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
-        padding:2px 8px;font-size:11px;color:var(--muted)}
-  .pill.warn{color:var(--medium);border-color:rgba(255,163,46,.4)}
-  .empty-state{text-align:center;color:var(--muted);padding:70px 20px}
-  footer{color:var(--muted);font-size:12px;text-align:center;padding:0 0 28px}
-  a{color:inherit}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+  img{display:block}
+  button,input{font-family:inherit}
 
-  /* --- reports --- */
-  .btn{border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+
+  /* ---------------- sidebar ---------------- */
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;display:flex;align-items:center;justify-content:space-between;
+    padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);
+  }
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .nav-row .left{display:flex;align-items:center;gap:8px}
+
+  .badge{
+    background:var(--high-fg);color:var(--white);font:700 10px var(--font-ui);
+    border-radius:100px;height:16px;min-width:16px;padding:0 6px;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+  .dot.high{background:var(--high-fg)}
+  .dot.med{background:var(--med-fg)}
+  .dot.low{background:var(--low-fg)}
+
+  /* state/cluster/clinic tree */
+  .tree{display:flex;flex-direction:column}
+  .tree-row{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);
+  }
+  .tree-row:hover{background:var(--bg)}
+  .tree-row .left{display:flex;align-items:center;gap:8px;min-width:0}
+  .tree-row .left span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tree-row.state{border:1px solid transparent}
+  .tree-row.state.active{background:var(--bg);border-color:var(--line);color:var(--text);font-weight:500}
+  .tree-row.state ~ .tree-row.state{border-top:1px solid var(--line)}
+  .tree-row.cluster{padding-left:16px}
+  .tree-row.cluster.active{color:var(--text);font-weight:500}
+  .tree-row.clinic{padding-left:24px;font-size:12px}
+  .tree-row.clinic.active{color:var(--text);font-weight:500}
+  .tree-icon{width:16px;height:16px;flex:0 0 auto;filter:drop-shadow(0 2px 2px rgba(0,65,114,.08))}
+
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+
+  /* ---------------- main ---------------- */
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .topbar-left{display:flex;align-items:center;gap:24px}
+  .logo{height:24px;width:auto}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .topbar-right{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .search{
+    display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);
+    border-radius:6px;padding:8px 12px;width:240px;
+  }
+  .search img{width:14px;height:14px;opacity:.6}
+  .search input{border:0;background:transparent;outline:0;font-size:12px;color:var(--text);width:100%}
+  .search input::placeholder{color:var(--muted)}
+  .chip{
+    display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;
+    border-radius:8px;font:500 12px var(--font-body);letter-spacing:.3px;white-space:nowrap;
+  }
+  .chip.high{background:var(--high-bg);color:var(--high-fg)}
+  .chip.med{background:var(--med-bg);color:var(--med-fg)}
+  .chip.low{background:var(--low-bg);color:var(--low-fg)}
+
+  /* stat cards */
+  .stats-row{display:flex;gap:16px;flex-wrap:wrap}
+  .stat-card{
+    flex:1;min-width:180px;background:rgba(255,255,255,.8);border-radius:24px;
+    box-shadow:var(--shadow-card);padding:20px;display:flex;flex-direction:column;gap:8px;
+  }
+  .stat-card .label{font:500 12px var(--font-ui);color:var(--muted);margin:0}
+  .stat-card .value-row{display:flex;align-items:baseline;gap:4px}
+  .stat-card .value{font:700 24px var(--font-ui);color:var(--text)}
+  .stat-card .of{font:400 15px var(--font-ui);color:var(--muted)}
+  .stat-card .sub{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+
+  /* live feed */
+  .feed-section{display:flex;flex-direction:column;gap:16px}
+  .feed-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .feed-title{font:600 15px var(--font-ui);margin:0}
+  .pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .pill{padding:4px 10px;border-radius:100px;font:400 12px var(--font-ui);color:var(--muted);border:1px solid transparent}
+  .pill.all.active{
+    background:linear-gradient(180deg, #10B981 0%, #00664C 100%);
+    border-color:transparent;color:#fff;font-weight:500;
+  }
+  .pill.high.active{background:var(--white);border-color:var(--high-fg);color:var(--high-fg);font-weight:500}
+  .pill.med.active{background:var(--white);border-color:var(--med-fg);color:var(--med-fg);font-weight:500}
+  .pill.low.active{background:var(--white);border-color:var(--low-fg);color:var(--low-fg);font-weight:500}
+
+  .cards{display:flex;flex-direction:column;gap:12px}
+  .feed-card{
+    display:flex;align-items:center;gap:8px;background:var(--white);border-radius:24px;
+    box-shadow:var(--shadow-feed);padding:8px;
+  }
+  .feed-card[hidden]{display:none}
+  .feed-card .thumb{
+    width:150px;height:100%;min-height:100px;align-self:stretch;border-radius:16px;
+    border:1px solid var(--line);object-fit:cover;background:var(--bg);flex:0 0 auto;
+  }
+  .feed-card .thumb.empty{
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;
+  }
+  .feed-card .content{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;padding:12px}
+  .feed-card .meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .feed-card .dotsep{color:var(--muted);font-size:12px}
+  .feed-card .clinic{font:700 18px var(--font-body);color:var(--text)}
+  .feed-card .camera{font:500 12px var(--font-body);color:var(--muted)}
+  .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
+  .feed-card .subtle{font:500 12px var(--font-body);color:var(--muted);margin:0}
+  .feed-card .view-btn{
+    flex:0 0 auto;height:48px;padding:0 16px;border-radius:16px;box-shadow:var(--shadow-btn);
+    display:flex;align-items:center;justify-content:center;font:500 15px var(--font-body);color:var(--brand);
+    background:var(--white);border:1px solid var(--line);cursor:pointer;
+  }
+  .view-btn[aria-disabled="true"]{opacity:.4;cursor:default}
+
+  .feed-empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:13px}
+  .feed-footer{display:flex;gap:8px;justify-content:center;padding-top:8px;font-size:12px}
+  .feed-footer .count{color:var(--muted)}
+  .feed-footer .more{color:var(--brand);font-weight:600;cursor:pointer;border:0;background:none;font:inherit}
+  .feed-footer .more:disabled{display:none}
+
+  /* ---------------- overlays (reports / offline) - reskinned light ---------------- */
+  .btn{border:1px solid var(--line);background:var(--white);color:var(--text);
        padding:7px 15px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit}
-  .btn:hover{border-color:var(--accent)}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn:hover{border-color:var(--brand)}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
   .btn:disabled{opacity:.5;cursor:default}
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:50;
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;
            display:none;padding:28px 16px;overflow:auto}
   .overlay.open{display:block}
-  .sheet{max-width:1000px;margin:0 auto;background:var(--panel);
-         border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .sheet{max-width:1000px;margin:0 auto;background:var(--white);
+         border:1px solid var(--line);border-radius:16px;overflow:hidden}
   .sheet-head{display:flex;gap:12px;align-items:center;padding:14px 18px;
-              border-bottom:1px solid var(--line);background:var(--panel-2);
+              border-bottom:1px solid var(--line);background:var(--bg);
               position:sticky;top:0;z-index:2;flex-wrap:wrap}
   .sheet-head h2{margin:0;font-size:16px;font-weight:600}
   .sheet-head .spacer{flex:1}
   .sheet-body{padding:18px 22px 26px}
-  .clinic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
-               gap:10px}
-  .clinic-card{text-align:left;border:1px solid var(--line);background:var(--panel-2);
+  .clinic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .clinic-card{text-align:left;border:1px solid var(--line);background:var(--white);
                border-radius:10px;padding:12px 14px;cursor:pointer;color:var(--text);
                font-family:inherit;font-size:14px}
-  .clinic-card:hover{border-color:var(--accent)}
+  .clinic-card:hover{border-color:var(--brand)}
   .clinic-card .nm{font-weight:600;display:block;margin-bottom:5px}
   .clinic-card .st{font-size:12px;color:var(--muted)}
-  .clinic-card .st.ready{color:var(--low)}
-  .clinic-card .st.missing{color:var(--medium)}
+  .clinic-card .st.ready{color:var(--low-fg)}
+  .clinic-card .st.missing{color:var(--med-fg)}
   .report h1{font-size:20px;margin:0 0 6px}
   .report h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;
-             border-bottom:1px solid var(--line);color:var(--accent)}
+             border-bottom:1px solid var(--line);color:var(--brand)}
   .report h3{font-size:14px;margin:18px 0 8px}
   .report p{margin:8px 0;line-height:1.6}
   .report ul{margin:8px 0 8px 20px;line-height:1.7}
-  .report code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .report code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px}
   .table-wrap{overflow-x:auto;margin:10px 0}
   .report table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
-  .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;
-                        vertical-align:top}
-  .report th{background:var(--panel-2);font-weight:600;color:var(--muted)}
-  .report strong{color:var(--text)}
+  .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  .report th{background:var(--bg);font-weight:600;color:var(--muted)}
   .note{color:var(--muted);font-size:12px}
-  .badge{display:inline-block;background:var(--high);color:#fff;border-radius:999px;
-         padding:1px 7px;font-size:11px;margin-left:6px;font-weight:500}
   #csv-bar{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);
            display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   #download-csv,#download-csv-plain{text-decoration:none;display:inline-block}
-  #offline-body h3{font-size:14px;font-weight:500;color:var(--accent);margin:4px 0 10px}
+  #offline-body h3{font-size:14px;font-weight:500;color:var(--brand);margin:4px 0 10px}
   #offline-body table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
   #offline-body th,#offline-body td{border:1px solid var(--line);padding:7px 10px;text-align:left}
-  #offline-body th{background:var(--panel-2);font-weight:600;color:var(--muted)}
-  select{background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+  #offline-body th{background:var(--bg);font-weight:600;color:var(--muted)}
+  select{background:var(--white);color:var(--text);border:1px solid var(--line);
          border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
 
-  /* --- phones ---
-     Three things break on a narrow screen: the evidence thumbnail keeps its
-     230px and leaves ~56px for the text beside it, the header grows to ~490px
-     (most of the screen before a single alert), and the clinic name pushes the
-     page into sideways scrolling. */
-  @media (max-width: 640px){
-    header{padding:10px 12px}
-    h1{font-size:15px}
-    h1 span{display:none}
-    .bar{gap:10px}
-    #open-reports{width:100%;order:3;padding:9px 15px}
-    .tiles{gap:6px;width:100%}
-    .tile{flex:1;padding:5px 8px;font-size:10px;text-align:center}
-    .tile b{font-size:15px}
-    /* One scrolling row of chips instead of three wrapped rows. */
-    .filters{flex-wrap:nowrap;overflow-x:auto;margin-top:10px;padding-bottom:4px;
-             scrollbar-width:none;-webkit-overflow-scrolling:touch}
-    .filters::-webkit-scrollbar{display:none}
-    .chip{flex:0 0 auto;padding:5px 11px;font-size:12px}
-    main{padding:12px}
-    /* Stack the card: full-width image above the text, not beside it. */
-    .event{flex-direction:column;gap:10px;padding:12px}
-    .shot{width:100%;min-width:0;height:180px}
-    .row1{gap:6px}
-    .where{font-size:14px;min-width:0;overflow-wrap:anywhere}
-    .when{margin-left:0;order:3;flex-basis:100%}
-    .desc{font-size:14px}
-    .reason{font-size:12px}
-    /* Reports fill the screen rather than floating in a card. */
-    .overlay{padding:0}
-    .sheet{border-radius:0;min-height:100vh}
-    .sheet-head{padding:10px 12px;gap:8px}
-    .sheet-head h2{font-size:15px}
-    .sheet-body{padding:12px}
-    .clinic-grid{grid-template-columns:1fr}
-    .report h1{font-size:17px}
-    .report h2{font-size:14px;margin:20px 0 8px}
-    .report p,.report ul{font-size:14px}
+  /* ---------------- phones ---------------- */
+  @media (max-width: 900px){
+    .app{flex-direction:column}
+    .sidebar{width:100%;flex:0 0 auto;position:relative;height:auto;
+             flex-direction:row;flex-wrap:wrap;gap:12px;padding:12px 16px}
+    .sidebar .nav-section,.sidebar .brand,.sidebar .sidebar-footer{display:none}
+    .main{padding:16px}
+    .stats-row{flex-wrap:wrap}
+    .stat-card{min-width:45%}
+    .search{width:100%;order:3}
+    .feed-card{flex-direction:column;align-items:stretch}
+    .feed-card .thumb{width:100%;height:160px}
+    .feed-card .view-btn{width:100%}
   }
 </style>
 </head>
 <body>
-<header>
-  <div class="bar">
-    <h1>Clinic Monitor <span>live alerts · newest first</span></h1>
-    <span style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn primary" id="open-reports">All clinics · daily reports</button>
-      <button class="btn" id="open-offline">Offline clinics <span id="offline-count" class="badge" hidden>0</span></button>
-    </span>
-    <div class="tiles">
-      <div class="tile high"><b id="c-high">{{ counts.High }}</b>High</div>
-      <div class="tile medium"><b id="c-medium">{{ counts.Medium }}</b>Medium</div>
-      <div class="tile low"><b id="c-low">{{ counts.Low }}</b>Low</div>
-      <div class="tile"><b id="c-total">{{ counts.Total }}</b>Total</div>
-    </div>
-  </div>
-  <div class="filters">
-    <a class="chip {% if severity == 'all' %}active{% endif %}"
-       href="?severity=all&clinic={{ clinic }}">All</a>
-    {% for s in severities %}
-      <a class="chip {{ s|lower }} {% if severity|lower == s|lower %}active{% endif %}"
-         href="?severity={{ s }}&clinic={{ clinic }}">{{ s }}</a>
-    {% endfor %}
-    {% if clinics %}
-      <span style="width:1px;height:22px;background:var(--line);margin:0 4px"></span>
-      <a class="chip {% if clinic == 'all' %}active{% endif %}"
-         href="?severity={{ severity }}&clinic=all">All clinics</a>
-      {% for c in clinics %}
-        <a class="chip {% if clinic == c %}active{% endif %}"
-           href="?severity={{ severity }}&clinic={{ c }}">{{ c }}</a>
-      {% endfor %}
-    {% endif %}
-  </div>
-</header>
+<div class="app">
 
-<main>
-  <div id="events"></div>
-  <div id="empty" class="empty-state" hidden>
-    No alerts match these filters yet.
-  </div>
-</main>
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row active" href="/">Dashboard</a>
+      <a class="nav-row" href="#" id="open-reports">Reports</a>
+      <a class="nav-row" href="#" id="open-offline">
+        <span>Offline Clinics</span>
+        <span id="sidebar-offline-count" class="dot high" style="width:auto;height:auto;border-radius:0;background:none;color:var(--high-fg);font-size:12px"></span>
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <p class="nav-label">
+        ALERTS
+        {% if counts.Active %}<span class="badge">{{ counts.Active }}</span>{% endif %}
+      </p>
+      <a class="nav-row" href="?severity=High&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
+        <span class="left"><span class="dot high"></span>High</span>
+        <span>{{ counts.High }}</span>
+      </a>
+      <a class="nav-row" href="?severity=Medium&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
+        <span class="left"><span class="dot med"></span>Medium</span>
+        <span>{{ counts.Medium }}</span>
+      </a>
+      <a class="nav-row" href="?severity=Low&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
+        <span class="left"><span class="dot low"></span>Low</span>
+        <span>{{ counts.Low }}</span>
+      </a>
+      <div class="nav-row"><span class="left">Resolved</span><span>{{ counts.Resolved }}</span></div>
+    </div>
+
+    {% if states %}
+    <div class="nav-section">
+      <p class="nav-label">STATES</p>
+      <div class="tree">
+        {% if state != 'all' %}
+          <a class="tree-row" href="?severity={{ severity }}&clinic=all&state=all&cluster=all">&larr; All states</a>
+        {% endif %}
+        {% for st in states %}
+          <a class="tree-row state {% if state == st.value %}active{% endif %}"
+             href="?severity={{ severity }}&clinic=all&state={{ st.value }}&cluster=all">
+            <span class="left">
+              <img class="tree-icon" alt=""
+                   src="{{ url_for('static', filename='icons/' ~ ('pin-active.svg' if state == st.value else 'pin.svg')) }}">
+              <span>{{ st.value }}</span>
+            </span>
+            <span>{{ st.count }}</span>
+          </a>
+          {% if state == st.value %}
+            {% for cl in clusters %}
+              <a class="tree-row cluster {% if cluster == cl.value %}active{% endif %}"
+                 href="?severity={{ severity }}&clinic=all&state={{ state }}&cluster={{ cl.value }}">
+                <span>{{ cl.value }} Cluster</span>
+                <span>{{ cl.count }}</span>
+              </a>
+              {% if cluster == cl.value %}
+                {% for cn in clinics %}
+                  <a class="tree-row clinic {% if clinic == cn.value %}active{% endif %}"
+                     href="?severity={{ severity }}&clinic={{ cn.value }}&state={{ state }}&cluster={{ cluster }}">
+                    <span>{{ cn.value }}</span>
+                    <span>{{ cn.count }}</span>
+                  </a>
+                {% endfor %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="sidebar-footer">auto-refreshing every {{ refresh }}s<br><span id="updated">—</span></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <img class="logo" src="{{ url_for('static', filename='img/curebay-logo.png') }}" alt="CureBay">
+        <div class="status">
+          {% if summary.clinics_total == 0 %}
+            <span class="dot" style="background:var(--muted)"></span><span>No patrol data yet today</span>
+          {% elif summary.clinics_offline > 0 %}
+            <span class="dot high"></span><span>{{ summary.clinics_offline }} clinic(s) offline</span>
+          {% else %}
+            <span class="dot low"></span><span>All systems operational</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="search">
+          <img src="{{ url_for('static', filename='icons/search.svg') }}" alt="">
+          <input type="text" id="search-box" placeholder="Search clinics, cameras...">
+        </div>
+        {% if counts.High %}
+          <a class="chip high" href="?severity=High&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
+            Review {{ counts.High }} High
+          </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <p class="label">Clinics Online</p>
+        <div class="value-row">
+          <span class="value">{{ summary.clinics_online }}</span>
+          <span class="of">/{{ summary.clinics_total }}</span>
+        </div>
+        <div class="sub"><span class="dot {{ 'high' if summary.clinics_offline else 'low' }}"></span>
+          {{ summary.clinics_offline }} offline</div>
+      </div>
+      <div class="stat-card">
+        <p class="label">Active Cameras</p>
+        <div class="value-row">
+          <span class="value">{{ summary.cameras_active }}</span>
+          <span class="of">/{{ summary.cameras_total }}</span>
+        </div>
+        <div class="sub"><span class="dot {{ 'med' if summary.cameras_inactive else 'low' }}"></span>
+          {{ summary.cameras_inactive }} inactive</div>
+      </div>
+      <div class="stat-card">
+        <p class="label">AI Alerts Today</p>
+        <div class="value-row"><span class="value">{{ summary.alerts_today }}</span></div>
+        <div class="sub"><span class="dot med"></span>{{ summary.alerts_last_hour }} in the last hour</div>
+      </div>
+      <div class="stat-card">
+        <p class="label">Avg Confidence</p>
+        <div class="value-row">
+          <span class="value">{{ (summary.avg_confidence * 100) | round | int if summary.avg_confidence is not none else '—' }}{{ '%' if summary.avg_confidence is not none else '' }}</span>
+        </div>
+        <div class="sub">
+          <span class="dot {{ 'low' if summary.avg_confidence and summary.avg_confidence >= 0.8 else 'med' }}"></span>
+          {% if summary.avg_confidence is none %}No detections yet{% elif summary.avg_confidence >= 0.8 %}Above threshold{% else %}Below threshold{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="feed-section">
+      <div class="feed-header">
+        <p class="feed-title">Live Feed</p>
+        <div class="pills">
+          <a class="pill all {% if severity == 'all' %}active{% endif %}"
+             href="?severity=all&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">All</a>
+          {% for s in severities %}
+            {% set sc = 'high' if s == 'High' else ('med' if s == 'Medium' else 'low') %}
+            <a class="pill {{ sc }} {% if severity|lower == s|lower %}active{% endif %}"
+               href="?severity={{ s }}&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">{{ s }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <div id="cards" class="cards"></div>
+      <div id="feed-empty" class="feed-empty" hidden>No alerts match these filters yet.</div>
+      <div class="feed-footer">
+        <span class="count" id="feed-count"></span>
+        <button class="more" id="load-more">Load more</button>
+      </div>
+    </div>
+  </main>
+</div>
 
 <!-- Offline clinics -->
 <div class="overlay" id="offline-overlay">
@@ -234,11 +438,10 @@
   </div>
 </div>
 
-<footer>auto-refreshing every {{ refresh }}s · <span id="updated">—</span></footer>
-
 <script>
 const REFRESH_MS = {{ refresh }} * 1000;
 const params = new URLSearchParams(window.location.search);
+let shownLimit = Math.max(parseInt(params.get("limit") || "6", 10), 6);
 
 function esc(s){
   return String(s === null || s === undefined ? "" : s)
@@ -246,68 +449,82 @@ function esc(s){
 }
 
 function when(ev){
-  const d = new Date(ev.ts_epoch * 1000);
-  const diff = (Date.now() - d.getTime()) / 1000;
-  const stamp = d.toLocaleString();
-  if (diff < 60) return "just now · " + stamp;
-  if (diff < 3600) return Math.floor(diff/60) + "m ago · " + stamp;
-  if (diff < 86400) return Math.floor(diff/3600) + "h ago · " + stamp;
-  return stamp;
+  const diff = (Date.now() / 1000) - ev.ts_epoch;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff/60) + "m ago";
+  if (diff < 86400) return Math.floor(diff/3600) + "h ago";
+  return Math.floor(diff/86400) + "d ago";
+}
+
+function sevClass(sev){
+  const s = (sev || "Low").toLowerCase();
+  if (s === "high") return "high";
+  if (s === "medium") return "med";
+  return "low";
 }
 
 function card(ev){
-  const sev = (ev.severity || "Low").toLowerCase();
-  const shot = ev.screenshot_path
-    ? `<a href="/screenshots/${encodeURI(ev.screenshot_path)}" target="_blank">
-         <img class="shot" loading="lazy" src="/screenshots/${encodeURI(ev.screenshot_path)}" alt="evidence">
-       </a>`
-    : `<div class="shot empty">no screenshot</div>`;
+  const cls = sevClass(ev.severity);
+  const thumb = ev.screenshot_path
+    ? `<img class="thumb" loading="lazy" src="/screenshots/${encodeURI(ev.screenshot_path)}" alt="evidence">`
+    : `<div class="thumb empty">No<br>screenshot</div>`;
 
-  const pills = [];
-  if (ev.clinic_status) pills.push(`<span class="pill">clinic: ${esc(ev.clinic_status)}</span>`);
-  if (ev.person_count)  pills.push(`<span class="pill">people: ${ev.person_count}</span>`);
-  if (ev.confidence)    pills.push(`<span class="pill">conf: ${Number(ev.confidence).toFixed(2)}</span>`);
-  if (ev.staff_present) pills.push(`<span class="pill">staff present</span>`);
-  if (ev.patient_present) pills.push(`<span class="pill">patient visible</span>`);
-  if (ev.unusual_activity) pills.push(`<span class="pill warn">unusual activity</span>`);
-  if (ev.immediate_attention) pills.push(`<span class="pill warn">needs attention</span>`);
-  if (ev.camera_role) pills.push(`<span class="pill">${esc(ev.camera_role)} camera</span>`);
-  if (ev.source) pills.push(`<span class="pill">via ${esc(ev.source)}</span>`);
+  const metaBits = [];
+  if (ev.confidence !== null && ev.confidence !== undefined) metaBits.push(`Conf: ${Math.round(ev.confidence*100)}%`);
+  if (ev.clinic_status) metaBits.push(`Status: ${esc(ev.clinic_status)}`);
+  if (ev.person_count) metaBits.push(`People: ${ev.person_count}`);
+  metaBits.push(when(ev));
 
-  return `<article class="event ${sev}">
-    ${shot}
-    <div class="body">
-      <div class="row1">
-        <span class="sev ${sev}">${esc(ev.severity)}</span>
-        <span class="where">${esc(ev.clinic_name)} · ${esc(ev.camera_name)}</span>
-        <span class="when">${esc(when(ev))}</span>
+  const search = `${ev.clinic_name} ${ev.camera_name} ${ev.description}`.toLowerCase();
+
+  return `<article class="feed-card" data-search="${esc(search)}">
+    ${thumb}
+    <div class="content">
+      <div class="meta-row">
+        <span class="chip ${cls}">${esc(ev.severity)}</span>
+        <span class="dotsep">&bull;</span>
+        <span class="clinic">${esc(ev.clinic_name)}</span>
+        <span class="dotsep">&bull;</span>
+        <span class="camera">${esc(ev.camera_name)}</span>
       </div>
       <p class="desc">${esc(ev.description)}</p>
-      ${ev.reason ? `<p class="reason">${esc(ev.reason)}</p>` : ""}
-      <div class="meta">${pills.join("")}</div>
+      <p class="subtle">${metaBits.map(esc).join(" &middot; ")}</p>
     </div>
+    ${ev.screenshot_path
+      ? `<a class="view-btn" href="/screenshots/${encodeURI(ev.screenshot_path)}" target="_blank">View</a>`
+      : `<span class="view-btn" aria-disabled="true">View</span>`}
   </article>`;
 }
 
 async function refresh(){
   try{
-    const res = await fetch("/api/events?" + params.toString(), {cache:"no-store"});
+    const qs = new URLSearchParams(params);
+    qs.set("limit", shownLimit);
+    const res = await fetch("/api/events?" + qs.toString(), {cache:"no-store"});
     const data = await res.json();
-    const list = document.getElementById("events");
-    list.innerHTML = data.events.map(card).join("");
-    document.getElementById("empty").hidden = data.events.length > 0;
+    document.getElementById("cards").innerHTML = data.events.map(card).join("");
+    document.getElementById("feed-empty").hidden = data.events.length > 0;
+    document.getElementById("feed-count").textContent = `Showing ${data.events.length} of ${data.total}`;
+    const more = document.getElementById("load-more");
+    more.disabled = data.events.length >= data.total;
+    applySearchFilter();
 
     const stats = await (await fetch("/api/stats", {cache:"no-store"})).json();
-    document.getElementById("c-high").textContent   = stats.counts.High;
-    document.getElementById("c-medium").textContent = stats.counts.Medium;
-    document.getElementById("c-low").textContent    = stats.counts.Low;
-    document.getElementById("c-total").textContent  = stats.counts.Total;
-    document.getElementById("updated").textContent  =
-      "updated " + new Date().toLocaleTimeString();
+    document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
   }catch(err){
     document.getElementById("updated").textContent = "refresh failed: " + err;
   }
 }
+
+document.getElementById("load-more").onclick = () => { shownLimit += 6; refresh(); };
+
+function applySearchFilter(){
+  const term = (document.getElementById("search-box").value || "").trim().toLowerCase();
+  document.querySelectorAll("#cards .feed-card").forEach(el => {
+    el.hidden = term.length > 0 && !el.dataset.search.includes(term);
+  });
+}
+document.getElementById("search-box").addEventListener("input", applySearchFilter);
 
 refresh();
 setInterval(refresh, REFRESH_MS);
@@ -351,7 +568,7 @@ async function loadOffline(day){
         return `<tr title="${esc(why)}">
         <td><strong>${esc(o.clinic_name)}</strong></td>
         <td>${hhmm(o.from)}</td>
-        <td>${o.ongoing ? '<span style="color:var(--high)">still offline</span>' : hhmm(o.to)}</td>
+        <td>${o.ongoing ? '<span style="color:var(--high-fg)">still offline</span>' : hhmm(o.to)}</td>
         <td>${o.minutes < 1 ? "under one lap" : duration(o.minutes)}</td>
         <td>${o.checks}</td>
       </tr>`;}).join("") + `</tbody></table></div>
@@ -394,13 +611,13 @@ async function updateOfflineBadge(){
   try{
     const d = await (await fetch("/api/offline", {cache:"no-store"})).json();
     const n = d.outages.filter(o => o.ongoing).length;
-    const badge = document.getElementById("offline-count");
-    badge.textContent = n;
-    badge.hidden = n === 0;
+    const badge = document.getElementById("sidebar-offline-count");
+    badge.textContent = n || "";
   }catch(e){}
 }
 
-document.getElementById("open-offline").onclick = () => {
+document.getElementById("open-offline").onclick = (e) => {
+  e.preventDefault();
   offOverlay.classList.add("open");
   loadOffline(offlineDay);
 };
@@ -427,8 +644,6 @@ const xlsxLink = document.getElementById("download-csv");
 const csvLink  = document.getElementById("download-csv-plain");
 const csvNote  = document.getElementById("csv-note");
 
-/* One file per day, named after that day, so a folder of them stays sorted
-   and nobody has to guess which download is which. */
 function setCsvDay(day){
   xlsxLink.href = "/api/reports/xlsx?day=" + encodeURIComponent(day);
   xlsxLink.setAttribute("download", `clinic-daily-report-${day}.xlsx`);
@@ -452,7 +667,6 @@ async function loadClinics(day){
   const data = await (await fetch("/api/reports" + qs, {cache:"no-store"})).json();
   currentDay = data.day;
 
-  // Day picker: whichever days have patrol data, newest first.
   const days = data.days_with_data && data.days_with_data.length
     ? data.days_with_data : [data.day];
   if (!days.includes(data.day)) days.unshift(data.day);
@@ -522,7 +736,8 @@ updateBtn.onclick = async () => {
   }
 };
 
-document.getElementById("open-reports").onclick = () => {
+document.getElementById("open-reports").onclick = (e) => {
+  e.preventDefault();
   overlay.classList.add("open");
   loadClinics(currentDay);
 };

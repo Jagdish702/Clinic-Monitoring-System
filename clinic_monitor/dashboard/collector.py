@@ -20,13 +20,20 @@ from __future__ import annotations
 
 import hmac
 import logging
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from flask import Flask, jsonify, request
 
-import config
-from storage.database import Database
+# Run standalone as `python dashboard/collector.py` (systemd's ExecStart), so
+# the parent directory - where config.py and storage/ live - needs adding to
+# sys.path the same way dashboard/app.py does; it is not on it by default.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import config  # noqa: E402
+from storage.database import Database  # noqa: E402
 
 log = logging.getLogger(__name__)
 

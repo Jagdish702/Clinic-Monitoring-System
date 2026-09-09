@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
 import report as reporting  # noqa: E402
+from analysis import scoring  # noqa: E402
 from analysis.camera_role import infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
 from dashboard.workbook import build_workbook  # noqa: E402
@@ -116,6 +117,82 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             state=state,
             cluster=cluster,
             severities=SEVERITIES,
+            refresh=config.DASHBOARD_REFRESH_SEC,
+        )
+
+    @app.route("/scores")
+    def scores_page():
+        window = request.args.get("window", "7D")
+        if window not in scoring.WINDOWS:
+            window = "7D"
+        state = request.args.get("state", "all")
+        cluster = request.args.get("cluster", "all")
+
+        # Computed once, ungrouped, then grouped in Python by the clinic's
+        # own (state, cluster) - so cluster/state averages don't each
+        # re-scan the whole window's data from scratch.
+        all_scores = scoring.clinic_scores(database, window=window)
+        locations = scoring.clinic_locations(database)
+
+        states = database.group_counts("state")
+        clusters = database.group_counts("cluster", state=None if state == "all" else state)
+        clinics = database.group_counts(
+            "clinic_name",
+            state=None if state == "all" else state,
+            cluster=None if cluster == "all" else cluster,
+        )
+        clinic_names_in_scope = {c["value"] for c in clinics}
+
+        clinic_rows = sorted(
+            (
+                {"clinic_name": name, **cats}
+                for name, cats in all_scores.items()
+                if name in clinic_names_in_scope
+            ),
+            key=lambda r: (r["overall"] is None, r["overall"] or 0),
+        )
+
+        cluster_rows = []
+        for row in clusters:
+            cname = row["value"]
+            grouped = {
+                name: cats for name, cats in all_scores.items()
+                if locations.get(name) and locations[name][1] == cname
+            }
+            cluster_rows.append({
+                "name": cname, "average": scoring.group_average(grouped),
+                "clinics": len(grouped),
+            })
+        cluster_rows.sort(key=lambda r: (r["average"] is None, r["average"] or 0))
+
+        state_rows = []
+        for row in states:
+            sname = row["value"]
+            grouped = {
+                name: cats for name, cats in all_scores.items()
+                if locations.get(name) and locations[name][0] == sname
+            }
+            state_rows.append({
+                "name": sname, "average": scoring.group_average(grouped),
+                "clinics": len(grouped),
+            })
+        state_rows.sort(key=lambda r: (r["average"] is None, r["average"] or 0))
+
+        problematic = scoring.most_problematic_now(database, limit=3)
+
+        return render_template(
+            "scores.html",
+            window=window,
+            windows=list(scoring.WINDOWS.keys()),
+            state=state,
+            cluster=cluster,
+            states=states,
+            clusters=clusters,
+            clinics=clinics,
+            clinic_rows=clinic_rows,
+            cluster_rows=cluster_rows,
+            state_rows=state_rows,
+            problematic=problematic,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

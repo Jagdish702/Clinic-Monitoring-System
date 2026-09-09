@@ -40,6 +40,7 @@ import report as reporting  # noqa: E402
 from control import emulator  # noqa: E402
 from control.emulator import EmulatorError  # noqa: E402
 from control.navigator import (  # noqa: E402
+    DeviceNotFoundError,
     NavigationError,
     PhoneNavigator,
     build_clinic,
@@ -473,6 +474,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                     stuck += 1
                 else:
                     stuck = 0
+            except DeviceNotFoundError as exc:
+                # Our own navigation failed to locate the device while
+                # scrolling - not a signal about the clinic's device at all,
+                # so it must never be written as clinic_status="offline".
+                # Doing so once made a clinic that had never gone down show
+                # up as "offline" on the dashboard because a stray "Sharing"
+                # badge threw off a scroll count.
+                reason = str(exc).split(" - ")[0]
+                stats.skipped[name] = f"navigation: {reason}"
+                print(f"    skipped (navigation, not recorded as offline): {reason}")
             except NavigationError as exc:
                 # Offline clinics come back later, so never drop them from the
                 # rotation - just note it and move on. visit() has already

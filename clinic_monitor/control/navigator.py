@@ -42,6 +42,18 @@ class NavigationError(RuntimeError):
     """The app could not be driven to the requested state."""
 
 
+class DeviceNotFoundError(NavigationError):
+    """
+    The device list was scrolled through and the name never appeared.
+
+    Distinct from a device the app itself reports as offline: this is our
+    own navigation failing to locate something that may well be sitting
+    right there (list reordering, a stray badge like "Sharing" consuming a
+    scroll slot, a lagging render) - not a signal about the clinic's device
+    at all, and must never be recorded as one.
+    """
+
+
 @dataclass
 class Node:
     """One node of the on-screen accessibility tree."""
@@ -603,7 +615,7 @@ class PhoneNavigator:
             self._scroll_down()
         close = difflib.get_close_matches(name, seen, n=1, cutoff=0.4)
         hint = f" Did you mean {close[0]!r}?" if close else ""
-        raise NavigationError(
+        raise DeviceNotFoundError(
             f"no device matching {name!r} after "
             f"{max_scrolls or config.NAV_MAX_SCROLLS} scrolls.{hint} "
             f"Devices seen: {seen}"

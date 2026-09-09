@@ -105,18 +105,21 @@ Camera health:
 Rules:
 - Judge only what is visible. Do not speculate about identities.
 - The image is a phone screenshot of a CCTV grid, so it may be low quality.
-- Severity:
-  "Low" = normal activity, or a minor/cosmetic checklist item (uniform not
-    ironed, pharmacy shelf untidy, sanitizer empty, minor outdoor litter).
-  "Medium" = something worth a look (crowding, long wait, someone
-    unattended, after-hours presence, waiting area not clean, staff
-    missing a badge or head cover, staff apron missing during clinic
-    hours, unclean compound wall or parking area).
-  "High" = possible emergency (fall, collapse, fight, fire, theft, medical
-    distress), a serious compliance breach (medical waste not segregated,
-    sample area not disinfected, no mask/gloves during blood collection,
-    staff on a phone or eating with a patient present, camera feed not
-    working), or anything else needing immediate human attention.
+- Severity comes ONLY from a genuine emergency or one of the checklist
+  items above - never from vague/ordinary activity. Crowding, a long
+  wait, someone unattended, or after-hours presence with nothing else
+  wrong is Low, not Medium, unless it is also a genuine emergency.
+  "Low" = the default - normal activity, nothing on the checklist above
+    applies, or a minor/cosmetic checklist item (uniform not ironed,
+    pharmacy shelf untidy, sanitizer empty, minor outdoor litter).
+  "Medium" = exactly one of: waiting area not clean, staff missing a
+    badge or head cover, staff apron missing during clinic hours,
+    unclean compound wall or parking area.
+  "High" = a genuine emergency actually visible in the frame (fall,
+    collapse, fight, fire, theft, medical distress), OR exactly one of:
+    medical waste not segregated, sample area not disinfected, no
+    mask/gloves during blood collection, staff on a phone or eating with
+    a patient present, camera feed not working.
 - If the view is unclear or empty, use severity "Low" and say so.
 - Name the specific checklist item that drove the severity in "reason" -
   do not just repeat "unusual activity".

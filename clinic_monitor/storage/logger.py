@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 
 import config
+import notify
 from storage import collector_client
 from storage.database import Database
 
@@ -155,6 +156,14 @@ class EventLogger:
         except Exception as exc:
             log.error("failed to insert event: %s", exc)
             return 0
+
+        # Same state/cluster resolution db.insert_event() just applied - the
+        # email needs to say which cluster raised it, not just the clinic name.
+        notify.notify_high_severity({
+            **payload,
+            "state": payload.get("state") or config.STATE_NAME,
+            "cluster": payload.get("cluster") or config.CLUSTER_NAME,
+        })
 
         level = logging.WARNING if severity in ("High", "Medium") else logging.INFO
         log.log(

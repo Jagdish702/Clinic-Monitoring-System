@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import config
+import notify
 from storage import collector_client
 
 log = logging.getLogger(__name__)
@@ -356,6 +357,12 @@ class Database:
                     cluster,
                 ),
             )
+        # push=False means this is the collector's own copy of a pushed
+        # write, not the originating patrol - notifying here too would fire
+        # the same outage twice (once locally at the source, once again
+        # when the pushed copy lands on the collector).
+        if status == "offline" and self._push:
+            notify.notify_offline(self, clinic_name, state, cluster, reason)
         if not self._push:
             return
         collector_client.push(

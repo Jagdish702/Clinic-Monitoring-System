@@ -32,6 +32,8 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
+import notify  # noqa: E402
+from analysis import scoring  # noqa: E402
 from analysis.camera_health import CameraHealth, HealthStatus, assess_sequence  # noqa: E402
 from ask import CameraObservation, watch  # noqa: E402
 from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
@@ -474,6 +476,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                     stuck += 1
                 else:
                     stuck = 0
+                if event_logger is not None:
+                    try:
+                        today = scoring.clinic_scores(
+                            event_logger.db, window="1D",
+                            state=config.STATE_NAME or None,
+                            cluster=config.CLUSTER_NAME or None,
+                        )
+                        overall = (today.get(name) or {}).get("overall")
+                        if overall is not None:
+                            notify.notify_low_score(
+                                name, config.STATE_NAME, config.CLUSTER_NAME, overall
+                            )
+                    except Exception as exc:
+                        log.debug("low-score check failed for %s: %s", name, exc)
             except DeviceNotFoundError as exc:
                 # Our own navigation failed to locate the device while
                 # scrolling - not a signal about the clinic's device at all,

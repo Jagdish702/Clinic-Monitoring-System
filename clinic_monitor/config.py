@@ -269,6 +269,27 @@ INACTIVITY_MINUTES = int(os.getenv("CM_INACTIVITY_MINUTES", "90"))
 LUNCH_MIN_MINUTES = int(os.getenv("CM_LUNCH_MIN_MINUTES", "30"))
 
 # --------------------------------------------------------------------------- #
+# Email escalation - one notification list, three triggers (see notify.py).
+# Off by default: CM_EMAIL_ENABLED unset behaves exactly as before this
+# existed, matching the collector's own opt-in pattern.
+# --------------------------------------------------------------------------- #
+EMAIL_ENABLED = _env_bool("CM_EMAIL_ENABLED", False)
+EMAIL_SMTP_HOST = os.getenv("CM_EMAIL_SMTP_HOST", "smtp.office365.com")
+EMAIL_SMTP_PORT = int(os.getenv("CM_EMAIL_SMTP_PORT", "587"))
+EMAIL_FROM = os.getenv("CM_EMAIL_FROM", "")
+EMAIL_APP_PASSWORD = os.getenv("CM_EMAIL_APP_PASSWORD", "")
+EMAIL_TO = tuple(
+    a.strip() for a in os.getenv("CM_EMAIL_TO", "").split(",") if a.strip()
+)
+# How long a clinic must be continuously offline before it earns an email -
+# a single missed lap is normal jitter, not an outage worth escalating.
+EMAIL_OFFLINE_MINUTES = int(os.getenv("CM_EMAIL_OFFLINE_MINUTES", "30"))
+EMAIL_LOW_SCORE_THRESHOLD = float(os.getenv("CM_EMAIL_LOW_SCORE_THRESHOLD", "50"))
+# Per (clinic, trigger) - so one bad camera or a long outage cannot spam the
+# inbox once a minute for as long as the condition holds.
+EMAIL_COOLDOWN_MINUTES = int(os.getenv("CM_EMAIL_COOLDOWN_MINUTES", "60"))
+
+# --------------------------------------------------------------------------- #
 # Stage 6 - dashboard
 # --------------------------------------------------------------------------- #
 DASHBOARD_HOST = os.getenv("CM_DASHBOARD_HOST", "127.0.0.1")

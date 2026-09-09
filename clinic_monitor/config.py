@@ -91,6 +91,24 @@ def is_ignored_camera(name: str) -> bool:
     return name.strip() in IGNORED_CAMERAS
 
 
+# Whole devices to leave out of the rotation entirely - as opposed to
+# IGNORED_CAMERAS above, which hides individual channels within a clinic
+# that is still otherwise visited. Some Hik-Connect accounts have a device
+# in their list that isn't a clinic at all (e.g. the office itself, used for
+# testing the NVR setup) - exact match against the on-screen device label,
+# including any serial suffix Hik-Connect appends.
+IGNORED_CLINICS = frozenset(
+    name.strip()
+    for name in os.getenv("CM_IGNORED_CLINICS", "").split(",")
+    if name.strip()
+)
+
+
+def is_ignored_clinic(name: str) -> bool:
+    """True for a device that should never appear in the patrol rotation."""
+    return name.strip() in IGNORED_CLINICS
+
+
 # How many clinics may read as entirely frozen, one after another, before we
 # stop believing it. Separate sites do not fail in lockstep; a run like that
 # means our own screen stopped being redrawn. Two in a row restarts the app,

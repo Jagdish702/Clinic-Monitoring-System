@@ -555,17 +555,25 @@ class PhoneNavigator:
         time.sleep(1.0)
 
     def list_devices(self, max_scrolls: Optional[int] = None) -> List[str]:
-        """Every device name in the list, in on-screen order."""
+        """
+        Every device name in the list, in on-screen order - excluding
+        anything config.is_ignored_clinic() says isn't a real clinic (e.g. an
+        office device sitting in the same Hik-Connect account).
+        """
         self.ensure_device_list()
         self.scroll_to_top()
         seen: List[str] = []
+        encountered: set = set()
         dry = 0
         for _ in range(max_scrolls or config.NAV_MAX_SCROLLS):
             added = False
             for row in self.device_rows(self.dump_nodes()):
-                if row.text not in seen:
+                if row.text in encountered:
+                    continue
+                encountered.add(row.text)
+                added = True   # still counts as scroll progress even if ignored
+                if not config.is_ignored_clinic(row.text):
                     seen.append(row.text)   # display order, never sorted
-                    added = True
             dry = 0 if added else dry + 1
             if dry >= 3:
                 break

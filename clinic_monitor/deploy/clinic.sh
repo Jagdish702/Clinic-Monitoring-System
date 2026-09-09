@@ -8,6 +8,8 @@
 #   ./clinic.sh report 2026-08-19
 #   ./clinic.sh dashboard                  serve it in the foreground
 #   ./clinic.sh clinics                    list every device in the app
+#   ./clinic.sh encrypted                  list clinics with an Encrypted camera
+#   ./clinic.sh encrypted --email          ...and email the result
 #   ./clinic.sh emulator --tune            emulator maintenance
 #   ./clinic.sh selftest                   offline checks, no phone needed
 set -euo pipefail
@@ -36,6 +38,7 @@ case "$cmd" in
     report)    [[ $# -gt 0 ]] && exec "$PY" report.py --day "$1" || exec "$PY" report.py ;;
     dashboard) exec "$PY" dashboard/app.py ;;
     clinics)   exec "$PY" ask.py --list-clinics ;;
+    encrypted) exec "$PY" tools/check_encrypted.py "$@" ;;
     emulator)  exec "$PY" -m control.emulator "$@" ;;
     selftest)  exec "$PY" tools/selftest.py ;;
     *)

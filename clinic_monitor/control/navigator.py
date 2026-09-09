@@ -640,6 +640,44 @@ class PhoneNavigator:
             for n in self._card_nodes(nodes, row)
         )
 
+    def is_encrypted(self, nodes: Sequence[Node], row: Node) -> bool:
+        """
+        True if any camera under this device shows the "Encrypted" badge -
+        a stream that needs its own password before it will play, visible
+        right on the device-list thumbnail without opening the live view.
+        """
+        return any(
+            config.NAV_ENCRYPTED_TEXT in n.label.lower()
+            for n in self._card_nodes(nodes, row)
+        )
+
+    def encrypted_devices(self, max_scrolls: Optional[int] = None) -> List[str]:
+        """
+        Every device whose thumbnail shows "Encrypted" anywhere on it, in
+        on-screen order - scrolls the whole list once, like list_devices(),
+        checking each newly-seen row's card as it passes.
+        """
+        self.ensure_device_list()
+        self.scroll_to_top()
+        seen: List[str] = []
+        encrypted: List[str] = []
+        dry = 0
+        for _ in range(max_scrolls or config.NAV_MAX_SCROLLS):
+            nodes = self.dump_nodes()
+            added = False
+            for row in self.device_rows(nodes):
+                if row.text in seen:
+                    continue
+                seen.append(row.text)
+                added = True
+                if self.is_encrypted(nodes, row):
+                    encrypted.append(row.text)
+            dry = 0 if added else dry + 1
+            if dry >= 3:
+                break
+            self._scroll_down()
+        return encrypted
+
     # -- opening the live view --------------------------------------------- #
     def _stable_nodes(self, tries: int = 6, pause: float = 0.6) -> List[Node]:
         """

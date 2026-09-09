@@ -182,7 +182,6 @@ NAV_TILE_ID = "play_window_layout"             # one live camera tile
 NAV_THUMBNAIL_ID = "channel_item_layout"       # fallback: a camera thumbnail
 NAV_MORE_BUTTON_ID = "device_more_iv"          # the ... on every device row
 NAV_OFFLINE_TEXT = "device offline"
-NAV_ENCRYPTED_TEXT = "encrypted"
 
 NAV_MAX_SCROLLS = int(os.getenv("CM_NAV_MAX_SCROLLS", "25"))
 NAV_SCROLL_SETTLE_SEC = 1.2

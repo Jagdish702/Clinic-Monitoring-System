@@ -331,7 +331,10 @@ def _verdict(
 
     target = _expected_at(actual, expected)
     delta = (actual - target).total_seconds() / 60
-    tolerance = config.SCHEDULE_TOLERANCE_MINUTES
+    tolerance = (
+        config.SCHEDULE_TOLERANCE_OPEN_MINUTES if opening
+        else config.SCHEDULE_TOLERANCE_CLOSE_MINUTES
+    )
 
     if opening:
         if watched_from > target:

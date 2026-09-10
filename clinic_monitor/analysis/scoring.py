@@ -4,9 +4,9 @@ Stage 7 - clinic scoring.
 Three categories, each 0-100, averaged into one overall Clinic Score:
 
 - Timeliness: how closely the clinic opened/closed to its expected schedule
-  (config.EXPECTED_OPEN/EXPECTED_CLOSE, config.SCHEDULE_TOLERANCE_MINUTES),
-  reusing report.operating_hours() rather than re-deriving open/close times
-  from raw observations a second way.
+  (config.EXPECTED_OPEN/EXPECTED_CLOSE, config.SCHEDULE_TOLERANCE_OPEN_MINUTES/
+  SCHEDULE_TOLERANCE_CLOSE_MINUTES), reusing report.operating_hours() rather
+  than re-deriving open/close times from raw observations a second way.
 - Incidents: only High/Medium severity events count - Low is everyday
   activity, not an incident. 100, minus 10 per High and 5 per Medium that
   day, floored at 0.
@@ -168,10 +168,9 @@ def _timeliness_scores(
 ) -> Dict[str, float]:
     """
     Average, over days the clinic was actually observed, of how close its
-    opening and closing were to schedule - full credit inside
-    SCHEDULE_TOLERANCE_MINUTES, one point off per minute beyond it.
+    opening and closing were to schedule - full credit inside the open/close
+    tolerance windows, one point off per minute beyond them.
     """
-    tolerance = config.SCHEDULE_TOLERANCE_MINUTES
     per_clinic: Dict[str, List[float]] = defaultdict(list)
     for clinic in clinics:
         indoor = indoor_cameras(roles, clinic)
@@ -185,11 +184,11 @@ def _timeliness_scores(
             if hours["opened"]:
                 target = _expected_at(day_when, config.EXPECTED_OPEN)
                 delta = abs((hours["opened"] - target).total_seconds()) / 60
-                deviations.append(max(0.0, delta - tolerance))
+                deviations.append(max(0.0, delta - config.SCHEDULE_TOLERANCE_OPEN_MINUTES))
             if hours["closed"]:
                 target = _expected_at(day_when, config.EXPECTED_CLOSE)
                 delta = abs((hours["closed"] - target).total_seconds()) / 60
-                deviations.append(max(0.0, delta - tolerance))
+                deviations.append(max(0.0, delta - config.SCHEDULE_TOLERANCE_CLOSE_MINUTES))
             if not deviations:
                 continue  # observed, but never staffed - nothing to judge
             day_score = max(0.0, 100.0 - sum(deviations))

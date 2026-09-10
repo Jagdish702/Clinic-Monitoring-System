@@ -260,7 +260,8 @@ EXPECTED_OPEN = os.getenv("CM_EXPECTED_OPEN", "07:30")
 EXPECTED_CLOSE = os.getenv("CM_EXPECTED_CLOSE", "19:30")
 EXPECTED_LUNCH_START = os.getenv("CM_EXPECTED_LUNCH_START", "13:30")
 EXPECTED_LUNCH_END = os.getenv("CM_EXPECTED_LUNCH_END", "14:30")
-SCHEDULE_TOLERANCE_MINUTES = int(os.getenv("CM_SCHEDULE_TOLERANCE", "30"))
+SCHEDULE_TOLERANCE_OPEN_MINUTES = int(os.getenv("CM_SCHEDULE_TOLERANCE_OPEN", "60"))
+SCHEDULE_TOLERANCE_CLOSE_MINUTES = int(os.getenv("CM_SCHEDULE_TOLERANCE_CLOSE", "30"))
 # People visible at once before the checkup area counts as unusually crowded.
 CROWDING_PERSONS = int(os.getenv("CM_CROWDING_PERSONS", "6"))
 # Quiet stretch during opening hours that is worth reporting.

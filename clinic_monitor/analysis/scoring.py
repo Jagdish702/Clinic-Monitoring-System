@@ -108,6 +108,42 @@ def _incident_scores(
     return {clinic: max(0.0, 100.0 - points) for clinic, points in penalty.items()}
 
 
+def _ttr_minutes(
+    db: Database, since_epoch: float, state: Optional[str], cluster: Optional[str]
+) -> Dict[str, float]:
+    """
+    Average minutes-to-resolution, per clinic, over incidents (see
+    analysis.incidents) resolved within the window - not yet wired into
+    clinic_scores()/the dashboard, built standalone for now.
+    """
+    clauses = ["status = 'resolved'", "resolved_ts >= ?"]
+    params: List[Any] = [since_epoch]
+    if state:
+        clauses.append("state = ?")
+        params.append(state)
+    if cluster:
+        clauses.append("cluster = ?")
+        params.append(cluster)
+    hide, hide_params = ignored_clause()
+    if hide:
+        clauses.append(hide)
+        params.extend(hide_params)
+    rows = db.conn.execute(
+        "SELECT clinic_name, resolved_ts, first_seen_ts FROM incidents "
+        f"WHERE {' AND '.join(clauses)}",
+        params,
+    ).fetchall()
+    per_clinic: Dict[str, List[float]] = defaultdict(list)
+    for row in rows:
+        per_clinic[row["clinic_name"]].append(
+            (row["resolved_ts"] - row["first_seen_ts"]) / 60
+        )
+    return {
+        clinic: round(sum(minutes) / len(minutes), 1)
+        for clinic, minutes in per_clinic.items()
+    }
+
+
 def _camera_availability_scores(
     db: Database, day_strs: Sequence[str], state: Optional[str], cluster: Optional[str]
 ) -> Dict[str, float]:

@@ -150,6 +150,7 @@
   .feed-card .meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .feed-card .dotsep{color:var(--muted);font-size:12px}
   .feed-card .clinic{font:700 18px var(--font-body);color:var(--text)}
+  .feed-card a.clinic:hover{text-decoration:underline}
   .feed-card .camera{font:500 12px var(--font-body);color:var(--muted)}
   .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
   .feed-card .subtle{font:500 12px var(--font-body);color:var(--muted);margin:0}
@@ -484,7 +485,7 @@ function card(ev){
       <div class="meta-row">
         <span class="chip ${cls}">${esc(ev.severity)}</span>
         <span class="dotsep">&bull;</span>
-        <span class="clinic">${esc(ev.clinic_name)}</span>
+        <a class="clinic" href="/clinic/${encodeURIComponent(ev.clinic_name)}">${esc(ev.clinic_name)}</a>
         <span class="dotsep">&bull;</span>
         <span class="camera">${esc(ev.camera_name)}</span>
       </div>

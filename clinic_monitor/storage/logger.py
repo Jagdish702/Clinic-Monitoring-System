@@ -105,6 +105,7 @@ class EventLogger:
         detections: Optional[Sequence[Any]] = None,
         source: str = "gemini",
         when: Optional[datetime] = None,
+        category: Optional[str] = None,
     ) -> int:
         """Persist one event and return its row id (0 if the write failed)."""
         when = when or datetime.now()
@@ -147,6 +148,7 @@ class EventLogger:
                 d.as_dict() if hasattr(d, "as_dict") else d for d in (detections or [])
             ],
             "source": source,
+            "category": category,
         }
 
         try:

@@ -14,7 +14,7 @@ import csv
 import io
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 import report as reporting  # noqa: E402
 from analysis import scoring  # noqa: E402
-from analysis.camera_role import infer_roles  # noqa: E402
+from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
 from dashboard.workbook import build_workbook  # noqa: E402
 from storage.database import Database, ignored_clause  # noqa: E402
@@ -230,6 +230,73 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 event["clinic_status_raw"] = event["clinic_status"]
                 event["clinic_status"] = None
         return events
+
+    @app.route("/clinic/<clinic_name>")
+    def clinic_page(clinic_name: str):
+        today = datetime.now().date()
+
+        # Camera Availability, "X/Y": Y is the best available proxy for "how
+        # many cameras this clinic has" - there is no authoritative total
+        # anywhere in the system (patrol reads the live tile layout off the
+        # phone each visit and never persists it) - so it's the distinct
+        # cameras actually seen over the last 7 days. X is how many of those
+        # had a usable reading today.
+        day_strs = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+        placeholders = ", ".join("?" for _ in day_strs)
+        all_cameras = {
+            row["camera_name"]
+            for row in database.conn.execute(
+                "SELECT DISTINCT camera_name FROM observations "
+                f"WHERE clinic_name = ? AND day IN ({placeholders})",
+                [clinic_name, *day_strs],
+            )
+        }
+        today_rows = database.get_observations(today.isoformat(), clinic_name)
+        usable_today = {r["camera_name"] for r in today_rows if reporting._usable(r)}
+        camera_available = len(usable_today)
+        camera_total = len(all_cameras | usable_today)
+
+        # Opening/closing deviation, last 14 days - reuses the same per-day
+        # primitives report.py and scoring.py already have; nothing here
+        # aggregates across days on its own elsewhere yet.
+        indoor = indoor_cameras(_camera_roles(), clinic_name)
+        deviations = []
+        for i in range(14):
+            day = today - timedelta(days=i)
+            rows = database.get_observations(day.isoformat(), clinic_name)
+            hours = reporting.operating_hours(rows, indoor) if rows else None
+            entry = {
+                "day": day.isoformat(), "opened": None, "open_deviation": None,
+                "closed": None, "close_deviation": None, "observed": False,
+            }
+            if hours:
+                day_start = datetime.combine(day, datetime.min.time())
+                if hours["opened"]:
+                    target = reporting._expected_at(day_start, config.EXPECTED_OPEN)
+                    entry["opened"] = hours["opened"].strftime("%H:%M")
+                    entry["open_deviation"] = round(
+                        (hours["opened"] - target).total_seconds() / 60
+                    )
+                    entry["observed"] = True
+                if hours["closed"]:
+                    target = reporting._expected_at(day_start, config.EXPECTED_CLOSE)
+                    entry["closed"] = hours["closed"].strftime("%H:%M")
+                    entry["close_deviation"] = round(
+                        (hours["closed"] - target).total_seconds() / 60
+                    )
+                    entry["observed"] = True
+            deviations.append(entry)
+
+        return render_template(
+            "clinic.html",
+            clinic_name=clinic_name,
+            camera_available=camera_available,
+            camera_total=camera_total,
+            expected_open=config.EXPECTED_OPEN,
+            expected_close=config.EXPECTED_CLOSE,
+            deviations=deviations,
+            refresh=config.DASHBOARD_REFRESH_SEC,
+        )
 
     @app.route("/api/events")
     def api_events():

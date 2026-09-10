@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — {{ clinic_name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --med-bg:#fff3d7;  --med-fg:#d29300;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);}
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+  .page-title{font:600 20px var(--font-ui);margin:0}
+  .page-sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+
+  .cards{display:flex;gap:16px;flex-wrap:wrap}
+  .stat-card{
+    flex:1;min-width:200px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:16px 20px;
+  }
+  .stat-card .label{margin:0;color:var(--muted);font-size:12px}
+  .stat-card .value-row{display:flex;align-items:baseline;gap:4px;margin-top:6px}
+  .stat-card .value{font:600 26px var(--font-ui)}
+  .stat-card .of{color:var(--muted);font-size:14px}
+  .stat-card .sub{margin-top:6px;font-size:12px;color:var(--muted)}
+
+  .section{display:flex;flex-direction:column;gap:12px}
+  .section h2{font:600 15px var(--font-ui);margin:0}
+  .section .hint{color:var(--muted);font-size:12px;margin:-8px 0 0}
+
+  table{width:100%;border-collapse:collapse;background:var(--white);border-radius:16px;
+    overflow:hidden;box-shadow:var(--shadow-card);}
+  th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .dev{font-weight:600}
+  .dev.good{color:var(--low-fg)}
+  .dev.bad{color:var(--high-fg)}
+  .dev.na{color:var(--muted);font-weight:400}
+  .table-wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row" href="/">Dashboard</a>
+      <a class="nav-row" href="/scores">Scores</a>
+    </div>
+    <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
+  </aside>
+
+  <main class="main">
+    <div>
+      <p class="page-title">{{ clinic_name }}</p>
+      <p class="page-sub">Camera availability and schedule deviation for this clinic.</p>
+    </div>
+
+    <div class="cards">
+      <div class="stat-card">
+        <p class="label">Camera Availability</p>
+        <div class="value-row">
+          <span class="value">{{ camera_available }}</span>
+          <span class="of">/{{ camera_total }} cameras available</span>
+        </div>
+        <p class="sub">Out of {{ camera_total }} cameras seen for this clinic in the last 7 days
+          (no fixed total is configured for it), {{ camera_available }} had a usable reading today.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Opening / Closing — last 14 days</h2>
+      <p class="hint">Expected {{ expected_open }} open · {{ expected_close }} close. Deviation in minutes, + late / − early.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Date</th>
+          <th>Opened</th>
+          <th class="num">Deviation</th>
+          <th>Closed</th>
+          <th class="num">Deviation</th>
+        </tr></thead>
+        <tbody>
+          {% for d in deviations %}
+          <tr>
+            <td>{{ d.day }}</td>
+            <td>{{ d.opened or '—' }}</td>
+            <td class="num">
+              {% if d.open_deviation is not none %}
+                <span class="dev {{ 'good' if d.open_deviation|abs <= 30 else 'bad' }}">
+                  {{ '%+d'|format(d.open_deviation) }}
+                </span>
+              {% else %}<span class="dev na">—</span>{% endif %}
+            </td>
+            <td>{{ d.closed or '—' }}</td>
+            <td class="num">
+              {% if d.close_deviation is not none %}
+                <span class="dev {{ 'good' if d.close_deviation|abs <= 30 else 'bad' }}">
+                  {{ '%+d'|format(d.close_deviation) }}
+                </span>
+              {% else %}<span class="dev na">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not deviations|selectattr('observed')|list %}
+        <p class="hint" style="padding:16px 0 0">No days with observed opening/closing in this window yet.</p>
+      {% endif %}
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

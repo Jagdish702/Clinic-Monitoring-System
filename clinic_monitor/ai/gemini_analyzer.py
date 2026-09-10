@@ -32,6 +32,28 @@ log = logging.getLogger(__name__)
 
 SEVERITIES = ("Low", "Medium", "High")
 
+# One value per checklist bullet in PROMPT below, plus "emergency" (a genuine
+# emergency, not any specific checklist item) and "normal" (nothing on the
+# checklist applies - the default, "Low" case).
+CATEGORIES = (
+    "parking_area",
+    "compound_wall",
+    "reception_cleanliness",
+    "medical_waste",
+    "sample_area_hygiene",
+    "pharmacy_organization",
+    "hand_sanitizer",
+    "staff_apron",
+    "staff_grooming",
+    "staff_badge",
+    "staff_head_cover",
+    "ppe_sample_collection",
+    "staff_conduct",
+    "camera_health",
+    "emergency",
+    "normal",
+)
+
 
 class TruncatedResponse(RuntimeError):
     """The model ran out of output tokens, so the JSON is incomplete."""
@@ -123,6 +145,9 @@ Rules:
 - If the view is unclear or empty, use severity "Low" and say so.
 - Name the specific checklist item that drove the severity in "reason" -
   do not just repeat "unusual activity".
+- "category" names WHICH checklist item (or "emergency") drove the severity -
+  the same thing "reason" says in prose, but as one fixed label. Use
+  "normal" whenever nothing on the checklist applies (the Low default).
 
 Return JSON only, no markdown, exactly these keys:
 {{
@@ -133,6 +158,11 @@ Return JSON only, no markdown, exactly these keys:
   "unusual_activity": true | false,
   "immediate_attention": true | false,
   "severity": "Low" | "Medium" | "High",
+  "category": "parking_area" | "compound_wall" | "reception_cleanliness" |
+    "medical_waste" | "sample_area_hygiene" | "pharmacy_organization" |
+    "hand_sanitizer" | "staff_apron" | "staff_grooming" | "staff_badge" |
+    "staff_head_cover" | "ppe_sample_collection" | "staff_conduct" |
+    "camera_health" | "emergency" | "normal",
   "reason": "<short justification>"
 }}{extra}"""
 
@@ -152,6 +182,7 @@ class SceneAnalysis:
     description: str
     clinic_status: str = "Unclear"
     severity: str = "Low"
+    category: str = "normal"
     reason: str = ""
     staff_present: bool = False
     patient_present: bool = False
@@ -167,6 +198,7 @@ class SceneAnalysis:
             "description": self.description,
             "clinic_status": self.clinic_status,
             "severity": self.severity,
+            "category": self.category,
             "reason": self.reason,
             "staff_present": self.staff_present,
             "patient_present": self.patient_present,
@@ -196,6 +228,16 @@ def _normalise_severity(value: Any) -> str:
     if text in {"moderate", "warning"}:
         return "Medium"
     return "Low"
+
+
+def _normalise_category(value: Any, immediate_attention: bool) -> str:
+    text = str(value or "").strip().lower().replace(" ", "_")
+    if text in CATEGORIES:
+        return text
+    # Missing/unrecognized category from a lenient or older-shaped response -
+    # fall back on the one other signal that already distinguishes a genuine
+    # emergency from everything else the checklist covers.
+    return "emergency" if immediate_attention else "normal"
 
 
 def _normalise_status(value: Any) -> str:
@@ -525,6 +567,7 @@ class GeminiAnalyzer:
             description=str(data.get("description") or "No description returned.").strip(),
             clinic_status=_normalise_status(data.get("clinic_status")),
             severity=severity,
+            category=_normalise_category(data.get("category"), immediate),
             reason=str(data.get("reason") or "").strip(),
             staff_present=_coerce_bool(data.get("staff_present")),
             patient_present=_coerce_bool(data.get("patient_present")),

@@ -161,7 +161,7 @@ def _log_camera(
             unusual_activity=analysis.unusual_activity,
             immediate_attention=analysis.immediate_attention,
             person_count=obs.max_persons, detections=obs.best_detections,
-            source="patrol", when=when,
+            source="patrol", when=when, category=analysis.category,
         )
         return
 

@@ -329,6 +329,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 detections=obs.best_detections,
                 source="ask",
                 when=datetime.fromtimestamp(obs.best_at),
+                category=analysis.category,
             )
 
     print(f"\n{'=' * 72}")

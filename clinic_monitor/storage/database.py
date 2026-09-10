@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS events (
     -- exactly one cluster, so there is nothing to get wrong or forget here.
     state               TEXT,
     cluster             TEXT
+    -- category and incident_id are added via _migrate(), not here - see
+    -- the comment above _migrate() for why a new events column can't be
+    -- declared in this static CREATE TABLE.
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts       ON events (ts_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity, ts_epoch DESC);
@@ -132,6 +135,31 @@ CREATE TABLE IF NOT EXISTS clinic_status (
     cluster     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_status_day ON clinic_status (day, clinic_name, ts_epoch);
+
+-- One row per ongoing problem, not per detection. A checklist item flagged
+-- on the same clinic+camera across repeat patrol visits is one incident
+-- continuing, not several - this is what turns raw events into something
+-- with a lifecycle (open -> resolved) and a duration, which `events` alone
+-- cannot represent. `category` and `incident_id` on `events` (added via
+-- _migrate(), not here - see the comment above `_migrate()`) link a
+-- detection back to the incident row it belongs to.
+CREATE TABLE IF NOT EXISTS incidents (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    clinic_name   TEXT    NOT NULL,
+    camera_name   TEXT    NOT NULL,
+    category      TEXT    NOT NULL,
+    severity      TEXT    NOT NULL,           -- worst severity seen so far
+    status        TEXT    NOT NULL DEFAULT 'open',  -- 'open' | 'resolved'
+    description   TEXT,                       -- latest description
+    first_seen_ts REAL    NOT NULL,
+    last_seen_ts  REAL    NOT NULL,
+    resolved_ts   REAL,
+    state         TEXT,
+    cluster       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_open
+    ON incidents (clinic_name, camera_name, status, first_seen_ts);
+CREATE INDEX IF NOT EXISTS idx_incidents_cluster ON incidents (state, cluster);
 """
 
 OBSERVATION_COLUMNS = (
@@ -163,6 +191,8 @@ EVENT_COLUMNS = (
     "source",
     "state",
     "cluster",
+    "category",
+    "incident_id",
 )
 
 
@@ -223,6 +253,8 @@ class Database:
             "events": {
                 "state": "TEXT",
                 "cluster": "TEXT",
+                "category": "TEXT",
+                "incident_id": "INTEGER",
             },
             "clinic_status": {
                 "state": "TEXT",
@@ -275,10 +307,24 @@ class Database:
         # aggregates many clusters, so it has none of its own to stamp with.
         state = event.get("state") or config.STATE_NAME
         cluster = event.get("cluster") or config.CLUSTER_NAME
-        pushed = {**event, "state": state, "cluster": cluster}
+
+        # Incident matching only runs at the origin, same as the offline
+        # notify in record_clinic_status() below - it reads/writes the
+        # `incidents` table, and doing that again on the collector's own
+        # push=False copy of the same event would double-count it.
+        if self._push:
+            from analysis.incidents import classify_and_link
+            incident_id = classify_and_link(
+                self, {**event, "state": state, "cluster": cluster}
+            )
+        else:
+            incident_id = event.get("incident_id")
+
+        pushed = {**event, "state": state, "cluster": cluster, "incident_id": incident_id}
 
         row = {key: event.get(key) for key in EVENT_COLUMNS}
         row["state"], row["cluster"] = state, cluster
+        row["incident_id"] = incident_id
         if isinstance(row.get("detections"), (list, dict)):
             row["detections"] = json.dumps(row["detections"])
         for flag in (

@@ -251,6 +251,7 @@ class ClinicPipeline:
                 detections=detections,
                 source="gemini",
                 when=when,
+                category=analysis.category,
             )
             self.stats.gemini_events += 1
             self._mark_event(tile.camera_name)

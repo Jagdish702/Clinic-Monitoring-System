@@ -98,6 +98,27 @@
   .score.na{color:var(--muted);font-weight:400}
   .table-wrap{overflow-x:auto}
   .empty{color:var(--muted);font-size:13px;padding:16px}
+
+  details.score-state, details.score-cluster{
+    background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);overflow:hidden;
+  }
+  details.score-state{margin-bottom:12px}
+  details.score-state > summary, details.score-cluster > summary{
+    list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;font:600 14px var(--font-ui);
+  }
+  details.score-state > summary::-webkit-details-marker,
+  details.score-cluster > summary::-webkit-details-marker{display:none}
+  details.score-state > summary::before{content:'▸';margin-right:8px;color:var(--muted);font-size:11px}
+  details.score-state[open] > summary::before{content:'▾'}
+  details.score-cluster > summary::before{content:'▸';margin-right:8px;color:var(--muted);font-size:10px}
+  details.score-cluster[open] > summary::before{content:'▾'}
+  details.score-state > summary{border-bottom:1px solid transparent}
+  details.score-state[open] > summary{border-bottom:1px solid var(--line)}
+  .score-clusters{padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+  details.score-cluster > summary{padding-left:32px;font-weight:500;font-size:13px}
+  details.score-cluster[open] > summary{border-bottom:1px solid var(--line)}
+  details.score-cluster table{box-shadow:none;border-radius:0}
 </style>
 </head>
 <body>
@@ -187,83 +208,57 @@
       {% endif %}
     </div>
 
-    <div class="section">
-      <h2>Clinic Score — {{ window }}{% if state != 'all' %} · {{ state }}{% endif %}{% if cluster != 'all' %} · {{ cluster }}{% endif %}</h2>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Clinic</th>
-          <th class="num">Timeliness</th>
-          <th class="num">Incidents</th>
-          <th class="num">Camera Availability</th>
-          <th class="num">Overall</th>
-        </tr></thead>
-        <tbody>
-          {% for r in clinic_rows %}
-          <tr>
-            <td>{{ r.clinic_name }}</td>
-            <td class="num">{{ '%.0f'|format(r.timeliness) if r.timeliness is not none else '—' }}</td>
-            <td class="num">{{ '%.0f'|format(r.incidents) if r.incidents is not none else '—' }}</td>
-            <td class="num">{{ '%.0f'|format(r.camera_availability) if r.camera_availability is not none else '—' }}</td>
-            <td class="num">
-              {% if r.overall is not none %}
-                <span class="score {{ 'good' if r.overall >= 80 else ('mid' if r.overall >= 50 else 'bad') }}">{{ '%.0f'|format(r.overall) }}</span>
-              {% else %}
-                <span class="score na">—</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if not clinic_rows %}<p class="empty">No clinics with data in this window / filter yet.</p>{% endif %}
-      </div>
-    </div>
+    {% macro score_span(value) %}
+      {% if value is not none %}
+        <span class="score {{ 'good' if value >= 80 else ('mid' if value >= 50 else 'bad') }}">{{ '%.0f'|format(value) }}</span>
+      {% else %}
+        <span class="score na">—</span>
+      {% endif %}
+    {% endmacro %}
 
     <div class="section">
-      <h2>Cluster average — {{ window }}</h2>
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>Cluster</th><th class="num">Clinics scored</th><th class="num">Average score</th></tr></thead>
-        <tbody>
-          {% for r in cluster_rows %}
-          <tr>
-            <td>{{ r.name }}</td>
-            <td class="num">{{ r.clinics }}</td>
-            <td class="num">
-              {% if r.average is not none %}
-                <span class="score {{ 'good' if r.average >= 80 else ('mid' if r.average >= 50 else 'bad') }}">{{ '%.0f'|format(r.average) }}</span>
-              {% else %}<span class="score na">—</span>{% endif %}
-            </td>
-          </tr>
+      <h2>Score breakdown — {{ window }}{% if state != 'all' %} · {{ state }}{% endif %}{% if cluster != 'all' %} · {{ cluster }}{% endif %}</h2>
+      {% for s in tree %}
+      <details class="score-state" {% if loop.first %}open{% endif %}>
+        <summary>
+          <span>{{ s.name }}</span>
+          {{ score_span(s.average) }}
+        </summary>
+        <div class="score-clusters">
+          {% for c in s.clusters %}
+          <details class="score-cluster" {% if loop.first %}open{% endif %}>
+            <summary>
+              <span>{{ c.name }} Cluster</span>
+              {{ score_span(c.average) }}
+            </summary>
+            <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Clinic</th>
+                <th class="num">Timeliness</th>
+                <th class="num">Incidents</th>
+                <th class="num">Camera Availability</th>
+                <th class="num">Overall</th>
+              </tr></thead>
+              <tbody>
+                {% for r in c.clinics %}
+                <tr>
+                  <td>{{ r.clinic_name }}</td>
+                  <td class="num">{{ '%.0f'|format(r.timeliness) if r.timeliness is not none else '—' }}</td>
+                  <td class="num">{{ '%.0f'|format(r.incidents) if r.incidents is not none else '—' }}</td>
+                  <td class="num">{{ '%.0f'|format(r.camera_availability) if r.camera_availability is not none else '—' }}</td>
+                  <td class="num">{{ score_span(r.overall) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+          </details>
           {% endfor %}
-        </tbody>
-      </table>
-      {% if not cluster_rows %}<p class="empty">No clusters with data yet.</p>{% endif %}
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>State average — {{ window }}</h2>
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>State</th><th class="num">Clinics scored</th><th class="num">Average score</th></tr></thead>
-        <tbody>
-          {% for r in state_rows %}
-          <tr>
-            <td>{{ r.name }}</td>
-            <td class="num">{{ r.clinics }}</td>
-            <td class="num">
-              {% if r.average is not none %}
-                <span class="score {{ 'good' if r.average >= 80 else ('mid' if r.average >= 50 else 'bad') }}">{{ '%.0f'|format(r.average) }}</span>
-              {% else %}<span class="score na">—</span>{% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if not state_rows %}<p class="empty">No states with data yet.</p>{% endif %}
-      </div>
+        </div>
+      </details>
+      {% endfor %}
+      {% if not tree %}<p class="empty">No clinics with data in this window / filter yet.</p>{% endif %}
     </div>
   </main>
 </div>

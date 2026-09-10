@@ -128,11 +128,11 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         state = request.args.get("state", "all")
         cluster = request.args.get("cluster", "all")
 
-        # Computed once, ungrouped, then grouped in Python by the clinic's
-        # own (state, cluster) - so cluster/state averages don't each
-        # re-scan the whole window's data from scratch.
+        # Computed once, ungrouped - the State -> Cluster -> Clinic tree
+        # below groups this in Python instead of recomputing scores per
+        # group, so the tree costs a handful of small group_counts() lookups
+        # (one per state, one per cluster) on top of it, not a rescan.
         all_scores = scoring.clinic_scores(database, window=window)
-        locations = scoring.clinic_locations(database)
 
         states = database.group_counts("state")
         clusters = database.group_counts("cluster", state=None if state == "all" else state)
@@ -141,42 +141,48 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             state=None if state == "all" else state,
             cluster=None if cluster == "all" else cluster,
         )
-        clinic_names_in_scope = {c["value"] for c in clinics}
 
-        clinic_rows = sorted(
-            (
-                {"clinic_name": name, **cats}
-                for name, cats in all_scores.items()
-                if name in clinic_names_in_scope
-            ),
-            key=lambda r: (r["overall"] is None, r["overall"] or 0),
-        )
-
-        cluster_rows = []
-        for row in clusters:
-            cname = row["value"]
-            grouped = {
-                name: cats for name, cats in all_scores.items()
-                if locations.get(name) and locations[name][1] == cname
+        # One State -> Cluster -> Clinic breakdown, narrowed to whatever the
+        # sidebar currently has selected. Each level's average rolls up from
+        # its own children (group_average), not a separate recompute.
+        tree = []
+        for srow in states:
+            sname = srow["value"]
+            if state != "all" and sname != state:
+                continue
+            cluster_nodes = []
+            for crow in database.group_counts("cluster", state=sname):
+                cname = crow["value"]
+                if cluster != "all" and cname != cluster:
+                    continue
+                clinic_names = {
+                    c["value"] for c in
+                    database.group_counts("clinic_name", state=sname, cluster=cname)
+                }
+                clinic_rows = sorted(
+                    (
+                        {"clinic_name": name, **cats}
+                        for name, cats in all_scores.items()
+                        if name in clinic_names
+                    ),
+                    key=lambda r: (r["overall"] is None, r["overall"] or 0),
+                )
+                cluster_scores = {r["clinic_name"]: r for r in clinic_rows}
+                cluster_nodes.append({
+                    "name": cname,
+                    "average": scoring.group_average(cluster_scores),
+                    "clinics": clinic_rows,
+                })
+            cluster_nodes.sort(key=lambda c: (c["average"] is None, c["average"] or 0))
+            state_scores = {
+                r["clinic_name"]: r for c in cluster_nodes for r in c["clinics"]
             }
-            cluster_rows.append({
-                "name": cname, "average": scoring.group_average(grouped),
-                "clinics": len(grouped),
+            tree.append({
+                "name": sname,
+                "average": scoring.group_average(state_scores),
+                "clusters": cluster_nodes,
             })
-        cluster_rows.sort(key=lambda r: (r["average"] is None, r["average"] or 0))
-
-        state_rows = []
-        for row in states:
-            sname = row["value"]
-            grouped = {
-                name: cats for name, cats in all_scores.items()
-                if locations.get(name) and locations[name][0] == sname
-            }
-            state_rows.append({
-                "name": sname, "average": scoring.group_average(grouped),
-                "clinics": len(grouped),
-            })
-        state_rows.sort(key=lambda r: (r["average"] is None, r["average"] or 0))
+        tree.sort(key=lambda s: (s["average"] is None, s["average"] or 0))
 
         problematic = scoring.most_problematic_now(database, limit=3)
 
@@ -189,9 +195,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             states=states,
             clusters=clusters,
             clinics=clinics,
-            clinic_rows=clinic_rows,
-            cluster_rows=cluster_rows,
-            state_rows=state_rows,
+            tree=tree,
             problematic=problematic,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )

@@ -1,0 +1,19 @@
+# Rotate clinic-patrol/clinic-dashboard's own log files.
+#
+# They are plain files (StandardOutput=append:... in the systemd units, not
+# journald), so nothing rotates them on its own - a bug that logs in a tight
+# loop (or even normal operation, left long enough) can otherwise fill the
+# disk. Caught in practice: patrol.py spinning on an empty device list wrote
+# ~300 million lines - 84 GB - into logs/patrol.log in about a day.
+#
+# Install: sudo cp deploy/clinic-logs.logrotate /etc/logrotate.d/clinic-monitor
+/opt/clinic-monitoring/clinic_monitor/logs/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    maxsize 200M
+    copytruncate
+}

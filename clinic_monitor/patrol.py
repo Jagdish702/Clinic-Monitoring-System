@@ -438,6 +438,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"could not read the device list: {exc}")
         return 1
 
+    if not names:
+        # An empty list here is not "nothing to patrol" - every deployment
+        # has clinics. Seen in practice: the emulator was still settling
+        # when patrol started, list_devices() came back empty, and the round
+        # loop below spun at full speed forever - visits=0 events=0 every
+        # time, no sleep between rounds - filling a VM's disk with ~300
+        # million log lines in about a day while patrolling nothing. Exit
+        # instead and let systemd's Restart=always try again in 10s, once
+        # (hopefully) the app has actually finished loading.
+        print("device list came back empty - refusing to start a patrol loop "
+              "with nothing to visit. Check Hik-Connect is signed in and the "
+              "list actually loads, then retry.")
+        return 1
+
     if args.clinics:
         wanted = [w.strip().lower() for w in args.clinics.split(",") if w.strip()]
         names = [n for n in names if any(w in n.lower() for w in wanted)]

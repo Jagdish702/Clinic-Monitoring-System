@@ -150,6 +150,17 @@ def _log_camera(
         frame = draw_detections(frame, obs.best_detections)
 
     if analysis is not None:
+        # YOLO's raw count is what put this frame in front of Gemini, but a
+        # poster or screen showing a person scores just as high on YOLO as a
+        # real one - Gemini looks at the same frame with actual scene
+        # understanding, so when it says nobody is really there, that
+        # overrides the count instead of leaving a "People: N" next to a
+        # description that just said otherwise.
+        person_count = (
+            obs.max_persons
+            if (analysis.staff_present or analysis.person_present)
+            else 0
+        )
         event_logger.log_event(
             clinic_name=clinic_name, camera_name=camera,
             description=analysis.description, severity=analysis.severity,
@@ -160,7 +171,7 @@ def _log_camera(
             person_present=analysis.person_present,
             unusual_activity=analysis.unusual_activity,
             immediate_attention=analysis.immediate_attention,
-            person_count=obs.max_persons, detections=obs.best_detections,
+            person_count=person_count, detections=obs.best_detections,
             source="patrol", when=when, category=analysis.category,
         )
         return

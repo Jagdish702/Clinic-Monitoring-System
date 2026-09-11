@@ -233,6 +233,15 @@ class ClinicPipeline:
 
         # Stage 5 - persist.
         if analysis is not None:
+            # A poster or screen showing a person scores just as high on
+            # YOLO as a real one - Gemini looks at the same frame with
+            # actual scene understanding, so when it says nobody is really
+            # there, that overrides the count.
+            person_count = (
+                len(persons)
+                if (analysis.staff_present or analysis.person_present)
+                else 0
+            )
             self.event_logger.log_event(
                 clinic_name=tile.clinic_name,
                 camera_name=tile.camera_name,
@@ -246,7 +255,7 @@ class ClinicPipeline:
                 person_present=analysis.person_present,
                 unusual_activity=analysis.unusual_activity,
                 immediate_attention=analysis.immediate_attention,
-                person_count=len(persons),
+                person_count=person_count,
                 motion_score=motion.score,
                 detections=detections,
                 source="gemini",

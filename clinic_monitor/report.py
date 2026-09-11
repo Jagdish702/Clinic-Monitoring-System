@@ -90,7 +90,7 @@ def _staffed(row: dict) -> bool:
     """
     if (row.get("max_persons") or 0) > 0:
         return True
-    if row.get("staff_present") or row.get("patient_present"):
+    if row.get("staff_present") or row.get("person_present"):
         return True
     # Gemini's own verdict that the clinic is operating. Weaker than seeing a
     # person - a lit, set-up room with nobody in it reads as Open - but it is

@@ -412,7 +412,7 @@ of ~2400 frames.
 
 `id, timestamp, ts_epoch, clinic_name, camera_name, description, severity,
 confidence, screenshot_path, clinic_status, reason, staff_present,
-patient_present, unusual_activity, immediate_attention, person_count,
+person_present, unusual_activity, immediate_attention, person_count,
 motion_score, detections (JSON), source, acknowledged`
 
 Screenshot paths are stored relative to `screenshots/` so the database stays

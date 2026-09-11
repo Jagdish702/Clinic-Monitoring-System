@@ -81,7 +81,7 @@ Core questions:
 - What is happening?
 - Is the clinic open?
 - Is staff present?
-- Is a patient visible?
+- Is a person visible?
 - Is anything unusual happening?
 - Is immediate attention required?
 
@@ -109,7 +109,7 @@ Indoor - clinical / pharmacy areas:
 Staff appearance - only apply between {open_time} and {close_time} clinic
 hours, and only if the image is in color (skip on a greyscale/IR frame):
 - Every staff member should be wearing the blue CureBay apron/uniform.
-  Anyone in the room NOT wearing that blue apron is a patient, not staff -
+  Anyone in the room NOT wearing that blue apron is a person, not staff -
   flag this only when a room clearly has people present and nobody at all
   is wearing the apron.
 - Aprons/uniforms should be clean, ironed, and free of stains.
@@ -117,7 +117,7 @@ hours, and only if the image is in color (skip on a greyscale/IR frame):
 - Female staff should wear a head cover where applicable.
 - During sample or blood collection specifically, staff must wear a mask
   and gloves.
-- No staff should be using a mobile phone or eating while a patient is
+- No staff should be using a mobile phone or eating while a person is
   present or being attended to.
 
 Camera health:
@@ -141,7 +141,7 @@ Rules:
     collapse, fight, fire, theft, medical distress), OR exactly one of:
     medical waste not segregated, sample area not disinfected, no
     mask/gloves during blood collection, staff on a phone or eating with
-    a patient present, camera feed not working.
+    a person present, camera feed not working.
 - If the view is unclear or empty, use severity "Low" and say so.
 - Name the specific checklist item that drove the severity in "reason" -
   do not just repeat "unusual activity".
@@ -154,7 +154,7 @@ Return JSON only, no markdown, exactly these keys:
   "description": "<one sentence summary>",
   "clinic_status": "Open" | "Closed" | "Unclear",
   "staff_present": true | false,
-  "patient_present": true | false,
+  "person_present": true | false,
   "unusual_activity": true | false,
   "immediate_attention": true | false,
   "severity": "Low" | "Medium" | "High",
@@ -185,7 +185,7 @@ class SceneAnalysis:
     category: str = "normal"
     reason: str = ""
     staff_present: bool = False
-    patient_present: bool = False
+    person_present: bool = False
     unusual_activity: bool = False
     immediate_attention: bool = False
     answer: str = ""            # only set when the caller passed a question
@@ -201,7 +201,7 @@ class SceneAnalysis:
             "category": self.category,
             "reason": self.reason,
             "staff_present": self.staff_present,
-            "patient_present": self.patient_present,
+            "person_present": self.person_present,
             "unusual_activity": self.unusual_activity,
             "immediate_attention": self.immediate_attention,
             "answer": self.answer,
@@ -570,7 +570,7 @@ class GeminiAnalyzer:
             category=_normalise_category(data.get("category"), immediate),
             reason=str(data.get("reason") or "").strip(),
             staff_present=_coerce_bool(data.get("staff_present")),
-            patient_present=_coerce_bool(data.get("patient_present")),
+            person_present=_coerce_bool(data.get("person_present")),
             unusual_activity=_coerce_bool(data.get("unusual_activity")),
             immediate_attention=immediate,
             answer=str(data.get("answer") or "").strip(),

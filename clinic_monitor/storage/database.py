@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS events (
     clinic_status       TEXT,
     reason              TEXT,
     staff_present       INTEGER DEFAULT 0,
-    patient_present     INTEGER DEFAULT 0,
+    person_present      INTEGER DEFAULT 0,
     unusual_activity    INTEGER DEFAULT 0,
     immediate_attention INTEGER DEFAULT 0,
     person_count        INTEGER DEFAULT 0,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS observations (
     -- person seated at a desk across a wide room, which is most of what a
     -- consulting-room camera shows.
     staff_present   INTEGER DEFAULT 0,
-    patient_present INTEGER DEFAULT 0,
+    person_present  INTEGER DEFAULT 0,
     source          TEXT    NOT NULL DEFAULT 'patrol',
     state           TEXT,
     cluster         TEXT
@@ -167,7 +167,7 @@ OBSERVATION_COLUMNS = (
     "frames", "motion_frames", "max_persons", "health_status",
     "brightness", "detail", "edge_ratio", "flat_ratio", "frame_change",
     "clinic_status", "severity", "unusual", "description",
-    "staff_present", "patient_present", "source", "state", "cluster",
+    "staff_present", "person_present", "source", "state", "cluster",
 )
 
 EVENT_COLUMNS = (
@@ -182,7 +182,7 @@ EVENT_COLUMNS = (
     "clinic_status",
     "reason",
     "staff_present",
-    "patient_present",
+    "person_present",
     "unusual_activity",
     "immediate_attention",
     "person_count",
@@ -237,16 +237,38 @@ class Database:
 
     def _migrate(self) -> None:
         """
-        Add columns the schema has grown since a database was created.
+        Add columns the schema has grown since a database was created, and
+        rename any that have been renamed since.
 
         ``CREATE TABLE IF NOT EXISTS`` leaves an existing table exactly as it
-        was, so a new column in SCHEMA never reaches a database that already
-        has rows in it - which is every deployed one.
+        was, so a new (or renamed) column in SCHEMA never reaches a database
+        that already has rows in it - which is every deployed one.
         """
+        # Renames run before the add-column loop below: a database that
+        # already has the old name gets it renamed in place (keeping its
+        # history), and one that never had either name falls through to the
+        # add-column loop, which adds the new name fresh.
+        renames = {
+            "events": {"patient_present": "person_present"},
+            "observations": {"patient_present": "person_present"},
+        }
+        for table, columns in renames.items():
+            have = {
+                row["name"]
+                for row in self.conn.execute(f"PRAGMA table_info({table})")
+            }
+            for old, new in columns.items():
+                if old in have and new not in have:
+                    log.info("renaming %s.%s -> %s", table, old, new)
+                    with self.conn as conn:
+                        conn.execute(
+                            f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}"
+                        )
+
         wanted = {
             "observations": {
                 "staff_present": "INTEGER DEFAULT 0",
-                "patient_present": "INTEGER DEFAULT 0",
+                "person_present": "INTEGER DEFAULT 0",
                 "state": "TEXT",
                 "cluster": "TEXT",
             },
@@ -329,7 +351,7 @@ class Database:
             row["detections"] = json.dumps(row["detections"])
         for flag in (
             "staff_present",
-            "patient_present",
+            "person_present",
             "unusual_activity",
             "immediate_attention",
         ):
@@ -354,7 +376,7 @@ class Database:
 
         row = {key: observation.get(key) for key in OBSERVATION_COLUMNS}
         row["state"], row["cluster"] = state, cluster
-        for flag in ("unusual", "staff_present", "patient_present"):
+        for flag in ("unusual", "staff_present", "person_present"):
             row[flag] = int(bool(row.get(flag)))
         placeholders = ", ".join(f":{c}" for c in OBSERVATION_COLUMNS)
         sql = (
@@ -824,7 +846,7 @@ class Database:
             data["detections"] = []
         for flag in (
             "staff_present",
-            "patient_present",
+            "person_present",
             "unusual_activity",
             "immediate_attention",
             "acknowledged",

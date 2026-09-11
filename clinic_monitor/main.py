@@ -243,7 +243,7 @@ class ClinicPipeline:
                 clinic_status=analysis.clinic_status,
                 reason=analysis.reason,
                 staff_present=analysis.staff_present,
-                patient_present=analysis.patient_present,
+                person_present=analysis.person_present,
                 unusual_activity=analysis.unusual_activity,
                 immediate_attention=analysis.immediate_attention,
                 person_count=len(persons),

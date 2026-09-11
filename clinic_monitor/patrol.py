@@ -109,7 +109,7 @@ def _observation_row(
         "unusual": False,
         "description": "",
         "staff_present": False,
-        "patient_present": False,
+        "person_present": False,
         "source": "patrol",
     }
     return row
@@ -157,7 +157,7 @@ def _log_camera(
             confidence=max((d.confidence for d in obs.best_detections), default=None),
             clinic_status=analysis.clinic_status, reason=analysis.reason,
             staff_present=analysis.staff_present,
-            patient_present=analysis.patient_present,
+            person_present=analysis.person_present,
             unusual_activity=analysis.unusual_activity,
             immediate_attention=analysis.immediate_attention,
             person_count=obs.max_persons, detections=obs.best_detections,
@@ -335,7 +335,7 @@ def visit(
             unusual=analysis.unusual_activity or analysis.immediate_attention,
             description=analysis.description,
             staff_present=analysis.staff_present,
-            patient_present=analysis.patient_present,
+            person_present=analysis.person_present,
         )
         _save(event_logger, record)
 

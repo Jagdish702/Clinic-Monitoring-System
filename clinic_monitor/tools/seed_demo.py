@@ -73,7 +73,7 @@ def main() -> int:
     now = datetime.now()
     for index, row in enumerate(DEMO_EVENTS):
         (clinic, camera, description, severity, status, reason,
-         staff, patient, unusual, attention, people, conf) = row
+         staff, person, unusual, attention, people, conf) = row
         logger.log_event(
             clinic_name=clinic,
             camera_name=camera,
@@ -84,7 +84,7 @@ def main() -> int:
             clinic_status=status,
             reason=reason,
             staff_present=staff,
-            patient_present=patient,
+            person_present=person,
             unusual_activity=unusual,
             immediate_attention=attention,
             person_count=people,

@@ -135,6 +135,11 @@ Rules:
   monitor/screen in the room rather than someone actually present - a flat
   printed or displayed image of a person is not a person. Only answer yes
   when a real person is physically in the room.
+- Use seating position as a cue for staff vs. patient, in addition to the
+  blue apron (below): someone seated at the desk facing the PC monitor is
+  typically staff; someone seated on the opposite side of the desk, facing
+  the staff member, is typically a patient. Unlike the apron, this cue does
+  not depend on color, so use it on a greyscale/IR frame too.
 - The image is a phone screenshot of a CCTV grid, so it may be low quality.
 - Severity comes ONLY from a genuine emergency or one of the checklist
   items above - never from vague/ordinary activity. Crowding, a long

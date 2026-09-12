@@ -146,16 +146,18 @@ Rules:
   wait, someone unattended, or after-hours presence with nothing else
   wrong is Low, not Medium, unless it is also a genuine emergency.
   "Low" = the default - normal activity, nothing on the checklist above
-    applies, or a minor/cosmetic checklist item (uniform not ironed,
-    pharmacy shelf untidy, sanitizer empty, minor outdoor litter).
+    applies, a minor/cosmetic checklist item (uniform not ironed,
+    pharmacy shelf untidy, sanitizer empty, minor outdoor litter), or
+    staff using a mobile phone while a person is present - phone use on
+    its own is always Low, never Medium or High.
   "Medium" = exactly one of: waiting area not clean, staff missing a
     badge or head cover, staff apron missing during clinic hours,
     unclean compound wall or parking area.
   "High" = a genuine emergency actually visible in the frame (fall,
     collapse, fight, fire, theft, medical distress), OR exactly one of:
     medical waste not segregated, sample area not disinfected, no
-    mask/gloves during blood collection, staff on a phone or eating with
-    a person present, camera feed not working.
+    mask/gloves during blood collection, staff eating with a person
+    present, camera feed not working.
 - If the view is unclear or empty, use severity "Low" and say so.
 - Name the specific checklist item that drove the severity in "reason" -
   do not just repeat "unusual activity".
@@ -269,23 +271,24 @@ def _normalise_status(value: Any) -> str:
 def resolve_phone_claim(analysis: "SceneAnalysis") -> tuple:
     """
     (category, severity) after checking a phone-use claim against Gemini's
-    own ``phone_visible`` flag.
+    own ``phone_visible`` flag, and enforcing that phone use is Low by
+    policy regardless of what severity Gemini attached to it.
 
     "Staff on the phone" is easy to over-call from posture alone - looking
     down, a hand near the face, a held object at the wrong angle. Requiring
     Gemini's own separate visual confirmation that a phone/mobile device is
     actually visible catches the same class of false positive the poster/
-    person fix does, just for a different claim. A genuine emergency
-    (``immediate_attention``) is left untouched regardless - this only
-    softens an unconfirmed phone-use call, never a real one.
+    person fix does, just for a different claim - an unconfirmed claim is
+    downgraded all the way to "normal" rather than kept as a Low-severity
+    "staff_phone" incident, since without a confirmed device there is
+    nothing real to track. A genuine emergency (``immediate_attention``)
+    is left untouched regardless - this never softens a real one.
     """
-    if (
-        analysis.category == "staff_phone"
-        and not analysis.phone_visible
-        and not analysis.immediate_attention
-    ):
+    if analysis.category != "staff_phone" or analysis.immediate_attention:
+        return analysis.category, analysis.severity
+    if not analysis.phone_visible:
         return "normal", "Low"
-    return analysis.category, analysis.severity
+    return "staff_phone", "Low"
 
 
 def parse_response(text: str) -> Optional[Dict[str, Any]]:

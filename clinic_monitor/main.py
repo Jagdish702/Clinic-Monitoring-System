@@ -32,7 +32,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
-from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
+from ai.gemini_analyzer import GeminiAnalyzer, resolve_phone_claim  # noqa: E402
 from capture.adb_capture import CaptureError, list_devices  # noqa: E402
 from capture.frame_reader import (  # noqa: E402
     CameraFrame,
@@ -233,6 +233,11 @@ class ClinicPipeline:
 
         # Stage 5 - persist.
         if analysis is not None:
+            # An unconfirmed "staff on phone" call (posture alone, no
+            # device actually seen) is downgraded before anything else
+            # reads severity/category.
+            analysis.category, analysis.severity = resolve_phone_claim(analysis)
+
             # A poster or screen showing a person scores just as high on
             # YOLO as a real one - Gemini looks at the same frame with
             # actual scene understanding, so when it says nobody is really

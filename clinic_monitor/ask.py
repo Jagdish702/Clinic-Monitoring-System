@@ -33,7 +33,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
-from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
+from ai.gemini_analyzer import GeminiAnalyzer, resolve_phone_claim  # noqa: E402
 from analysis.camera_health import HealthStatus, assess_frame  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
 from capture.frame_reader import FrameReader, camera_regions  # noqa: E402
@@ -303,6 +303,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         if analysis is None:
             print("  gemini: unavailable (quota or error) - see the counts above")
             continue
+
+        # An unconfirmed "staff on phone" call (posture alone, no device
+        # actually seen) is downgraded before anything else reads
+        # severity/category.
+        analysis.category, analysis.severity = resolve_phone_claim(analysis)
 
         print(f"  severity: {analysis.severity}   clinic: {analysis.clinic_status}")
         print(f"  -> {analysis.description}")

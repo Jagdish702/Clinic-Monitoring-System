@@ -48,7 +48,8 @@ CATEGORIES = (
     "staff_badge",
     "staff_head_cover",
     "ppe_sample_collection",
-    "staff_conduct",
+    "staff_phone",
+    "staff_eating",
     "camera_health",
     "emergency",
     "normal",
@@ -117,8 +118,11 @@ hours, and only if the image is in color (skip on a greyscale/IR frame):
 - Female staff should wear a head cover where applicable.
 - During sample or blood collection specifically, staff must wear a mask
   and gloves.
-- No staff should be using a mobile phone or eating while a person is
-  present or being attended to.
+- No staff should be using a mobile phone while a person is present or
+  being attended to. Only flag this when an actual phone/mobile device is
+  clearly visible in someone's hand or on a surface in use - never infer
+  it just from someone looking down, their posture, or hand position.
+- No staff should be eating while a person is present or being attended to.
 
 Camera health:
 - If this camera's own feed looks frozen, blank, heavily obstructed, or
@@ -155,14 +159,15 @@ Return JSON only, no markdown, exactly these keys:
   "clinic_status": "Open" | "Closed" | "Unclear",
   "staff_present": true | false,
   "person_present": true | false,
+  "phone_visible": true | false,
   "unusual_activity": true | false,
   "immediate_attention": true | false,
   "severity": "Low" | "Medium" | "High",
   "category": "parking_area" | "compound_wall" | "reception_cleanliness" |
     "medical_waste" | "sample_area_hygiene" | "pharmacy_organization" |
     "hand_sanitizer" | "staff_apron" | "staff_grooming" | "staff_badge" |
-    "staff_head_cover" | "ppe_sample_collection" | "staff_conduct" |
-    "camera_health" | "emergency" | "normal",
+    "staff_head_cover" | "ppe_sample_collection" | "staff_phone" |
+    "staff_eating" | "camera_health" | "emergency" | "normal",
   "reason": "<short justification>"
 }}{extra}"""
 
@@ -186,6 +191,7 @@ class SceneAnalysis:
     reason: str = ""
     staff_present: bool = False
     person_present: bool = False
+    phone_visible: bool = False
     unusual_activity: bool = False
     immediate_attention: bool = False
     answer: str = ""            # only set when the caller passed a question
@@ -202,6 +208,7 @@ class SceneAnalysis:
             "reason": self.reason,
             "staff_present": self.staff_present,
             "person_present": self.person_present,
+            "phone_visible": self.phone_visible,
             "unusual_activity": self.unusual_activity,
             "immediate_attention": self.immediate_attention,
             "answer": self.answer,
@@ -247,6 +254,28 @@ def _normalise_status(value: Any) -> str:
     if text.startswith("clos"):
         return "Closed"
     return "Unclear"
+
+
+def resolve_phone_claim(analysis: "SceneAnalysis") -> tuple:
+    """
+    (category, severity) after checking a phone-use claim against Gemini's
+    own ``phone_visible`` flag.
+
+    "Staff on the phone" is easy to over-call from posture alone - looking
+    down, a hand near the face, a held object at the wrong angle. Requiring
+    Gemini's own separate visual confirmation that a phone/mobile device is
+    actually visible catches the same class of false positive the poster/
+    person fix does, just for a different claim. A genuine emergency
+    (``immediate_attention``) is left untouched regardless - this only
+    softens an unconfirmed phone-use call, never a real one.
+    """
+    if (
+        analysis.category == "staff_phone"
+        and not analysis.phone_visible
+        and not analysis.immediate_attention
+    ):
+        return "normal", "Low"
+    return analysis.category, analysis.severity
 
 
 def parse_response(text: str) -> Optional[Dict[str, Any]]:
@@ -571,6 +600,7 @@ class GeminiAnalyzer:
             reason=str(data.get("reason") or "").strip(),
             staff_present=_coerce_bool(data.get("staff_present")),
             person_present=_coerce_bool(data.get("person_present")),
+            phone_visible=_coerce_bool(data.get("phone_visible")),
             unusual_activity=_coerce_bool(data.get("unusual_activity")),
             immediate_attention=immediate,
             answer=str(data.get("answer") or "").strip(),

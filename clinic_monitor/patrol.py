@@ -36,7 +36,7 @@ import notify  # noqa: E402
 from analysis import scoring  # noqa: E402
 from analysis.camera_health import CameraHealth, HealthStatus, assess_sequence  # noqa: E402
 from ask import CameraObservation, watch  # noqa: E402
-from ai.gemini_analyzer import GeminiAnalyzer  # noqa: E402
+from ai.gemini_analyzer import GeminiAnalyzer, resolve_phone_claim  # noqa: E402
 from capture.adb_capture import CaptureError  # noqa: E402
 import report as reporting  # noqa: E402
 from control import emulator  # noqa: E402
@@ -359,6 +359,12 @@ def visit(
             _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
             stats.events += 1
             continue
+
+        # An unconfirmed "staff on phone" call (posture alone, no device
+        # actually seen) is downgraded here, once, so every downstream use
+        # of severity/category - stats, the console line, the observation
+        # row, the logged event - sees the same corrected verdict.
+        analysis.category, analysis.severity = resolve_phone_claim(analysis)
 
         stats.gemini_calls += 1
         stats.by_severity[analysis.severity] = (

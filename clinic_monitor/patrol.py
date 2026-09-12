@@ -543,7 +543,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if event_logger is not None:
                     try:
                         today = scoring.clinic_scores(
-                            event_logger.db, window="1D",
+                            event_logger.db, window="Today",
                             state=config.STATE_NAME or None,
                             cluster=config.CLUSTER_NAME or None,
                         )

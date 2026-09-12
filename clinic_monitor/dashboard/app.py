@@ -122,9 +122,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
     @app.route("/scores")
     def scores_page():
-        window = request.args.get("window", "1D")
+        window = request.args.get("window", "Today")
         if window not in scoring.WINDOWS:
-            window = "1D"
+            window = "Today"
         state = request.args.get("state", "all")
         cluster = request.args.get("cluster", "all")
 

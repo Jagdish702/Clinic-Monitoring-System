@@ -35,20 +35,46 @@ from analysis.camera_role import indoor_cameras, infer_roles
 from report import _expected_at, operating_hours
 from storage.database import Database, ignored_clause
 
-WINDOWS: Dict[str, int] = {"1D": 1, "3D": 3, "7D": 7, "14D": 14, "1M": 30}
+# name -> (end, length): "end" is how many days ago the window's last day
+# is (0 = today, 1 = yesterday); "length" is how many calendar days it
+# spans. Today/3D/7D/14D/30D all end today and just reach further back;
+# Yesterday is the one window that's closed off from today rather than
+# running up to now.
+WINDOWS: Dict[str, Tuple[int, int]] = {
+    "Today": (0, 1),
+    "Yesterday": (1, 1),
+    "3D": (0, 3),
+    "7D": (0, 7),
+    "14D": (0, 14),
+    "30D": (0, 30),
+}
 
 INCIDENT_PENALTY = {"High": 10, "Medium": 5}
 UNUSABLE_HEALTH = {"no_signal", "frozen", "too_dark", "obstructed"}
 
 
-def _window(days: int, today: Optional[date] = None) -> Tuple[List[str], float]:
-    """The window's calendar-day strings (newest last) and its start epoch."""
+def _window(
+    end: int, length: int, today: Optional[date] = None
+) -> Tuple[List[str], float, float]:
+    """
+    The window's calendar-day strings (newest last), start epoch, and end
+    epoch (exclusive). ``end`` days back is the window's last day; it spans
+    ``length`` days ending there. "Today" (end=0) gets an end epoch of
+    midnight tomorrow, which is really just "no upper bound yet" since
+    nothing can be timestamped in the future - the same end-exclusive query
+    shape works for both a window still running and a truly closed one
+    like "Yesterday" (end=1) without special-casing either.
+    """
     today = today or datetime.now().date()
-    day_strs = [(today - timedelta(days=i)).isoformat() for i in range(days)][::-1]
+    last_day = today - timedelta(days=end)
+    day_strs = [(last_day - timedelta(days=i)).isoformat() for i in range(length)][::-1]
     since_epoch = datetime.combine(
-        today - timedelta(days=days - 1), datetime.min.time()
+        last_day - timedelta(days=length - 1), datetime.min.time()
     ).timestamp()
-    return day_strs, since_epoch
+    until_epoch = datetime.combine(
+        last_day + timedelta(days=1), datetime.min.time()
+    ).timestamp()
+    return day_strs, since_epoch, until_epoch
 
 
 def _clinic_universe(
@@ -82,11 +108,15 @@ def _clinic_universe(
 
 
 def _incident_scores(
-    db: Database, since_epoch: float, state: Optional[str], cluster: Optional[str]
+    db: Database,
+    since_epoch: float,
+    until_epoch: float,
+    state: Optional[str],
+    cluster: Optional[str],
 ) -> Dict[str, float]:
     """100 minus the weighted High/Medium event count, per clinic, floored at 0."""
-    clauses = ["ts_epoch >= ?", "severity IN ('High','Medium')"]
-    params: List[Any] = [since_epoch]
+    clauses = ["ts_epoch >= ?", "ts_epoch < ?", "severity IN ('High','Medium')"]
+    params: List[Any] = [since_epoch, until_epoch]
     if state:
         clauses.append("state = ?")
         params.append(state)
@@ -245,13 +275,13 @@ def clinic_scores(
     One entry per clinic: {"timeliness", "incidents", "camera_availability",
     "overall"} - each None when the window has nothing to judge it from.
     """
-    days = WINDOWS.get(window, 7)
-    day_strs, since_epoch = _window(days)
+    end, length = WINDOWS.get(window, (0, 7))
+    day_strs, since_epoch, until_epoch = _window(end, length)
     clinics = _clinic_universe(db, day_strs, state, cluster)
     if not clinics:
         return {}
 
-    incidents = _incident_scores(db, since_epoch, state, cluster)
+    incidents = _incident_scores(db, since_epoch, until_epoch, state, cluster)
     availability = _camera_availability_scores(db, day_strs, state, cluster)
     roles = infer_roles(db.camera_descriptions())
     timeliness = _timeliness_scores(db, day_strs, clinics, roles)
@@ -353,7 +383,7 @@ def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
         seen.add(clinic)
 
     if len(entries) < limit:
-        today_scores = clinic_scores(db, window="1D")
+        today_scores = clinic_scores(db, window="Today")
         ranked = sorted(
             ((c, v["overall"]) for c, v in today_scores.items() if v["overall"] is not None),
             key=lambda item: item[1],
@@ -365,7 +395,7 @@ def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
                 continue
             entries.append({
                 "clinic_name": clinic, "rank_score": 50.0 + overall / 10,
-                "reason": "Low 24h score", "detail": f"score {overall}",
+                "reason": "Low today score", "detail": f"score {overall}",
                 "state": None, "cluster": None,
             })
             seen.add(clinic)

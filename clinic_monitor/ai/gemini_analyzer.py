@@ -130,6 +130,11 @@ Camera health:
 
 Rules:
 - Judge only what is visible. Do not speculate about identities.
+- Before answering "is staff/a person visible", rule out that what you are
+  looking at is a poster, printed photo, ID card, or a person shown on a
+  monitor/screen in the room rather than someone actually present - a flat
+  printed or displayed image of a person is not a person. Only answer yes
+  when a real person is physically in the room.
 - The image is a phone screenshot of a CCTV grid, so it may be low quality.
 - Severity comes ONLY from a genuine emergency or one of the checklist
   items above - never from vague/ordinary activity. Crowding, a long

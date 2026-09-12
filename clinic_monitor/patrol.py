@@ -207,6 +207,30 @@ def _save(event_logger: Optional[EventLogger], row: dict) -> None:
         log.error("could not record observation: %s", exc)
 
 
+def _previous_health_status(
+    event_logger: Optional[EventLogger], clinic_name: str, camera: str
+) -> Optional[str]:
+    """
+    This camera's health_status on its last visit, or None if there isn't one.
+
+    A single bad-looking visit is often nothing - a hand wiping the lens, a
+    moth on the dome, a stray reflection - and reporting every one of those
+    as a "camera fault" is noise nobody can act on. Requiring the same visit
+    to look unhealthy twice in a row (any problem status, not necessarily
+    the identical one) before treating it as a real, actionable fault is
+    cheap: `observations` already has one row per visit per camera, so this
+    is a lookup against data already being written, not new state to keep.
+    """
+    if event_logger is None:
+        return None
+    row = event_logger.db.conn.execute(
+        "SELECT health_status FROM observations WHERE clinic_name = ? "
+        "AND camera_name = ? ORDER BY ts_epoch DESC LIMIT 1",
+        (clinic_name, camera),
+    ).fetchone()
+    return row["health_status"] if row else None
+
+
 def _all_frozen(observations: Dict[str, CameraObservation]) -> bool:
     """True when every camera watched in this visit read as a stalled stream."""
     verdicts = [
@@ -285,14 +309,23 @@ def visit(
         record = _observation_row(clinic.name, camera, obs, health)
 
         # A camera showing no stream will never show activity, so describing it
-        # is money spent to be told the screen is black. Report the fault.
+        # is money spent to be told the screen is black. Report the fault -
+        # but only once it has shown a problem on two visits running, so a
+        # one-off glitch is recorded quietly instead of raised as a fault.
         if health is not None and health.status is not HealthStatus.OK:
-            print(f"    {camera:<12} CAMERA FAULT: {health.status.label}")
-            stats.faults[f"{clinic.name}/{camera}"] = health.status
+            previous_status = _previous_health_status(event_logger, clinic.name, camera)
+            persistent = previous_status not in (None, HealthStatus.OK.value)
+            if persistent:
+                print(f"    {camera:<12} CAMERA FAULT: {health.status.label}")
+                stats.faults[f"{clinic.name}/{camera}"] = health.status
+            else:
+                print(f"    {camera:<12} {health.status.label} (first look - "
+                      f"not yet reported as a fault)")
             if not health.usable:
                 _save(event_logger, record)
-                _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
-                stats.events += 1
+                if persistent:
+                    _log_camera(event_logger, clinic.name, camera, obs, health, visit_at)
+                    stats.events += 1
                 continue
 
         # Describing a camera that saw nothing costs an API call to be told

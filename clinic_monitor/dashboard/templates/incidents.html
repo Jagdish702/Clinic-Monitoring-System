@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — Incidents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --med-bg:#fff3d7;  --med-fg:#d29300;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);}
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+  .page-title{font:600 20px var(--font-ui);margin:0}
+  .page-sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+
+  .filters{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .filter-field{display:flex;flex-direction:column;gap:4px}
+  .filter-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .filter-field select{font:500 13px var(--font-ui);padding:7px 10px;border-radius:8px;
+    border:1px solid var(--line);background:var(--white);color:var(--text);min-width:130px}
+  .filter-field button{font:600 13px var(--font-ui);padding:8px 16px;border-radius:8px;
+    border:1px solid var(--brand);background:var(--brand);color:#fff;cursor:pointer}
+
+  table{width:100%;border-collapse:collapse;background:var(--white);border-radius:16px;
+    overflow:hidden;box-shadow:var(--shadow-card);}
+  th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  th a{color:inherit}
+  th a.active{color:var(--brand);font-weight:700}
+  tr:last-child td{border-bottom:none}
+  tr.row-link:hover{background:var(--bg);cursor:pointer}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .table-wrap{overflow-x:auto}
+  .empty{color:var(--muted);font-size:13px;padding:16px}
+
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;
+    font:500 11px var(--font-ui);}
+  .pill.high{background:var(--high-bg);color:var(--high-fg)}
+  .pill.medium{background:var(--med-bg);color:var(--med-fg)}
+  .pill.low{background:var(--low-bg);color:var(--low-fg)}
+  .status{display:inline-flex;padding:3px 10px;border-radius:100px;font:500 11px var(--font-ui);}
+  .status.open{background:var(--high-bg);color:var(--high-fg)}
+  .status.resolved{background:var(--bg);color:var(--muted)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row" href="/">Dashboard</a>
+      <a class="nav-row" href="/scores">Scores</a>
+      <a class="nav-row active" href="/incidents">Incidents</a>
+    </div>
+    <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
+  </aside>
+
+  <main class="main">
+    <div>
+      <p class="page-title">Incidents</p>
+      <p class="page-sub">Every incident's own open → resolved lifecycle, filtered and sorted.</p>
+    </div>
+
+    <form class="filters" method="get">
+      <div class="filter-field">
+        <label>Duration</label>
+        <select name="window">
+          <option value="all" {% if window == 'all' %}selected{% endif %}>All time</option>
+          {% for w in windows %}
+            <option value="{{ w }}" {% if window == w %}selected{% endif %}>{{ w }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Status</label>
+        <select name="status">
+          <option value="all" {% if status == 'all' %}selected{% endif %}>All</option>
+          <option value="open" {% if status == 'open' %}selected{% endif %}>Unresolved</option>
+          <option value="resolved" {% if status == 'resolved' %}selected{% endif %}>Resolved</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Severity</label>
+        <select name="severity">
+          <option value="all" {% if severity == 'all' %}selected{% endif %}>All</option>
+          {% for s in severities %}
+            <option value="{{ s }}" {% if severity == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Category</label>
+        <select name="group">
+          <option value="all" {% if group == 'all' %}selected{% endif %}>All</option>
+          {% for g in groups %}
+            <option value="{{ g }}" {% if group == g %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>State</label>
+        <select name="state">
+          <option value="all" {% if state == 'all' %}selected{% endif %}>All states</option>
+          {% for st in states %}
+            <option value="{{ st.value }}" {% if state == st.value %}selected{% endif %}>{{ st.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Cluster</label>
+        <select name="cluster">
+          <option value="all" {% if cluster == 'all' %}selected{% endif %}>All clusters</option>
+          {% for cl in clusters %}
+            <option value="{{ cl.value }}" {% if cluster == cl.value %}selected{% endif %}>{{ cl.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Clinic</label>
+        <select name="clinic">
+          <option value="all" {% if clinic == 'all' %}selected{% endif %}>All clinics</option>
+          {% for c in clinics %}
+            <option value="{{ c.value }}" {% if clinic == c.value %}selected{% endif %}>{{ c.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="dir" value="{{ direction }}">
+      <div class="filter-field"><label>&nbsp;</label><button type="submit">Apply</button></div>
+    </form>
+
+    {% macro sort_link(key, label) %}
+      {% set next_dir = 'asc' if (sort == key and direction == 'desc') else 'desc' %}
+      <a class="{{ 'active' if sort == key else '' }}"
+         href="?window={{ window }}&status={{ status }}&severity={{ severity }}&group={{ group }}&state={{ state }}&cluster={{ cluster }}&clinic={{ clinic }}&sort={{ key }}&dir={{ next_dir }}">
+        {{ label }}{% if sort == key %}{{ ' ↓' if direction == 'desc' else ' ↑' }}{% endif %}
+      </a>
+    {% endmacro %}
+
+    <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>{{ sort_link('alphabetical', 'Clinic') }}</th>
+        <th>Camera</th>
+        <th>Category</th>
+        <th>{{ sort_link('severity', 'Severity') }}</th>
+        <th>Status</th>
+        <th>{{ sort_link('first_seen', 'First Seen') }}</th>
+        <th>{{ sort_link('last_seen', 'Last Seen') }}</th>
+        <th class="num">{{ sort_link('duration', 'Open for / TTR') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="row-link" onclick="window.location='/incidents/{{ r.id }}'">
+          <td>{{ r.clinic_name }}</td>
+          <td>{{ r.camera_name }}</td>
+          <td>{{ r.category_group }}<br><span class="muted">{{ r.category }}</span></td>
+          <td>
+            <span class="pill {{ r.severity|lower }}">{{ r.severity }} ({{ r.severity_score }})</span>
+          </td>
+          <td><span class="status {{ r.status }}">{{ 'Open' if r.status == 'open' else 'Resolved' }}</span></td>
+          <td>{{ r.first_seen_str }}</td>
+          <td>{{ r.last_seen_str }}</td>
+          <td class="num">{{ (r.duration_seconds / 60)|round|int }} min</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not rows %}<p class="empty">No incidents match these filters.</p>{% endif %}
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
 import report as reporting  # noqa: E402
+from analysis import incidents as incidents_lib  # noqa: E402
 from analysis import scoring  # noqa: E402
 from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
@@ -295,6 +296,68 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             expected_open=config.EXPECTED_OPEN,
             expected_close=config.EXPECTED_CLOSE,
             deviations=deviations,
+            refresh=config.DASHBOARD_REFRESH_SEC,
+        )
+
+    @app.route("/incidents")
+    def incidents_page():
+        window = request.args.get("window", "all")
+        if window != "all" and window not in scoring.WINDOWS:
+            window = "all"
+        status = request.args.get("status", "all")
+        severity = request.args.get("severity", "all")
+        group = request.args.get("group", "all")
+        clinic = request.args.get("clinic", "all")
+        state = request.args.get("state", "all")
+        cluster = request.args.get("cluster", "all")
+        sort = request.args.get("sort", "last_seen")
+        if sort not in incidents_lib.SORT_KEYS:
+            sort = "last_seen"
+        direction = request.args.get("dir", "desc")
+        if direction not in ("asc", "desc"):
+            direction = "desc"
+
+        rows = incidents_lib.list_incidents(
+            database,
+            window=None if window == "all" else window,
+            status=None if status == "all" else status,
+            severity=None if severity == "all" else severity,
+            group=None if group == "all" else group,
+            clinic=None if clinic == "all" else clinic,
+            state=None if state == "all" else state,
+            cluster=None if cluster == "all" else cluster,
+            sort=sort,
+            direction=direction,
+        )
+
+        states = database.group_counts("state")
+        clusters = database.group_counts("cluster", state=None if state == "all" else state)
+        clinics = database.group_counts(
+            "clinic_name",
+            state=None if state == "all" else state,
+            cluster=None if cluster == "all" else cluster,
+        )
+        groups = sorted(set(incidents_lib.CATEGORY_GROUPS.values()))
+
+        return render_template(
+            "incidents.html",
+            rows=rows,
+            window=window, windows=list(scoring.WINDOWS.keys()),
+            status=status, severity=severity, group=group, clinic=clinic,
+            state=state, cluster=cluster, sort=sort, direction=direction,
+            groups=groups, severities=SEVERITIES,
+            states=states, clusters=clusters, clinics=clinics,
+            refresh=config.DASHBOARD_REFRESH_SEC,
+        )
+
+    @app.route("/incidents/<int:incident_id>")
+    def incident_detail(incident_id: int):
+        row = incidents_lib.get_incident(database, incident_id)
+        if row is None:
+            abort(404)
+        return render_template(
+            "incident_detail.html",
+            incident=row,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

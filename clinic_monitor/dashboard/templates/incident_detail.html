@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — {{ incident.clinic_name }} incident</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --med-bg:#fff3d7;  --med-fg:#d29300;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);}
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+  .back{color:var(--muted);font-size:12px}
+  .back:hover{color:var(--text)}
+  .page-title{font:600 20px var(--font-ui);margin:0}
+  .page-sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;
+    font:500 11px var(--font-ui);}
+  .pill.high{background:var(--high-bg);color:var(--high-fg)}
+  .pill.medium{background:var(--med-bg);color:var(--med-fg)}
+  .pill.low{background:var(--low-bg);color:var(--low-fg)}
+  .status{display:inline-flex;padding:3px 10px;border-radius:100px;font:500 11px var(--font-ui);}
+  .status.open{background:var(--high-bg);color:var(--high-fg)}
+  .status.resolved{background:var(--bg);color:var(--muted)}
+
+  .cards{display:flex;gap:16px;flex-wrap:wrap}
+  .stat-card{
+    flex:1;min-width:160px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:16px 20px;
+  }
+  .stat-card .label{margin:0;color:var(--muted);font-size:12px}
+  .stat-card .value{font:600 18px var(--font-ui);margin-top:6px}
+
+  .section{display:flex;flex-direction:column;gap:12px}
+  .section h2{font:600 15px var(--font-ui);margin:0}
+
+  .shots{display:flex;gap:16px;flex-wrap:wrap}
+  .shot{flex:1;min-width:280px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);overflow:hidden}
+  .shot img{width:100%;display:block;background:var(--bg)}
+  .shot .caption{padding:10px 14px;font-size:12px;color:var(--muted)}
+  .empty-shot{padding:40px;text-align:center;color:var(--muted);font-size:12px}
+
+  .desc{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    padding:16px 20px;font-size:13px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row" href="/">Dashboard</a>
+      <a class="nav-row" href="/scores">Scores</a>
+      <a class="nav-row active" href="/incidents">Incidents</a>
+    </div>
+    <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
+  </aside>
+
+  <main class="main">
+    <a class="back" href="/incidents">&larr; Back to incidents</a>
+    <div>
+      <p class="page-title">{{ incident.clinic_name }} — {{ incident.camera_name }}</p>
+      <p class="page-sub">
+        <span class="pill {{ incident.severity|lower }}">{{ incident.severity }} ({{ incident.severity_score }})</span>
+        <span class="status {{ incident.status }}">{{ 'Open' if incident.status == 'open' else 'Resolved' }}</span>
+        · {{ incident.category_group }} / {{ incident.category }}
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="stat-card">
+        <p class="label">First Seen</p>
+        <p class="value">{{ incident.first_seen_str }}</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">Last Seen</p>
+        <p class="value">{{ incident.last_seen_str }}</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">{{ 'Resolved' if incident.status == 'resolved' else 'Still open' }}</p>
+        <p class="value">{{ incident.resolved_str or '—' }}</p>
+      </div>
+      <div class="stat-card">
+        <p class="label">{{ 'Time to Resolution' if incident.status == 'resolved' else 'Time since Open' }}</p>
+        <p class="value">{{ (incident.duration_seconds / 60)|round|int }} min</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Evidence</h2>
+      <div class="shots">
+        <div class="shot">
+          {% if incident.first_screenshot_path %}
+            <img src="/screenshots/{{ incident.first_screenshot_path }}" alt="First seen">
+          {% else %}
+            <div class="empty-shot">No first-seen screenshot recorded</div>
+          {% endif %}
+          <p class="caption">First seen — {{ incident.first_seen_str }}</p>
+        </div>
+        <div class="shot">
+          {% if incident.last_screenshot_path %}
+            <img src="/screenshots/{{ incident.last_screenshot_path }}" alt="Latest / closing">
+          {% else %}
+            <div class="empty-shot">No latest screenshot recorded</div>
+          {% endif %}
+          <p class="caption">
+            {{ 'Closing — ' + incident.resolved_str if incident.status == 'resolved' else 'Latest — ' + incident.last_seen_str }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Latest description</h2>
+      <div class="desc">{{ incident.description or 'No description recorded.' }}</div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

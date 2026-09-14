@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS incidents (
     resolved_ts   REAL,
     state         TEXT,
     cluster       TEXT
+    -- first_screenshot_path and last_screenshot_path are added via
+    -- _migrate(), not here - see the comment above _migrate() for why a
+    -- new incidents column can't be declared in this static CREATE TABLE.
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_open
     ON incidents (clinic_name, camera_name, status, first_seen_ts);
@@ -281,6 +284,10 @@ class Database:
             "clinic_status": {
                 "state": "TEXT",
                 "cluster": "TEXT",
+            },
+            "incidents": {
+                "first_screenshot_path": "TEXT",
+                "last_screenshot_path": "TEXT",
             },
         }
         for table, columns in wanted.items():

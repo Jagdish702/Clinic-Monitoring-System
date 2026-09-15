@@ -286,6 +286,9 @@ EMAIL_TO = tuple(
 # a single missed lap is normal jitter, not an outage worth escalating.
 EMAIL_OFFLINE_MINUTES = int(os.getenv("CM_EMAIL_OFFLINE_MINUTES", "30"))
 EMAIL_LOW_SCORE_THRESHOLD = float(os.getenv("CM_EMAIL_LOW_SCORE_THRESHOLD", "50"))
+# Its own switch, separate from EMAIL_ENABLED - High and Offline can escalate
+# while this one stays quiet, rather than all three being one on/off pair.
+EMAIL_LOW_SCORE_ENABLED = _env_bool("CM_EMAIL_LOW_SCORE_ENABLED", True)
 # Per (clinic, trigger) - so one bad camera or a long outage cannot spam the
 # inbox once a minute for as long as the condition holds.
 EMAIL_COOLDOWN_MINUTES = int(os.getenv("CM_EMAIL_COOLDOWN_MINUTES", "60"))

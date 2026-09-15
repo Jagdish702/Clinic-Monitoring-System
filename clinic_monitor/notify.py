@@ -153,6 +153,8 @@ def notify_low_score(
     clinic_name: str, state: Optional[str], cluster: Optional[str], score: float
 ) -> None:
     """Call with a clinic's just-computed 1D Clinic Score after a visit."""
+    if not config.EMAIL_LOW_SCORE_ENABLED:
+        return
     if score >= config.EMAIL_LOW_SCORE_THRESHOLD:
         return
     key = (clinic_name, "low_score")

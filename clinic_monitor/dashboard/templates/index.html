@@ -153,6 +153,10 @@
   .feed-card a.clinic:hover{text-decoration:underline}
   .feed-card .camera{font:500 12px var(--font-body);color:var(--muted)}
   .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
+  .feed-card .reason{font:500 12px var(--font-body);margin:0}
+  .feed-card .reason.high{color:var(--high-fg)}
+  .feed-card .reason.med{color:var(--med-fg)}
+  .feed-card .reason.low{color:var(--muted)}
   .feed-card .subtle{font:500 12px var(--font-body);color:var(--muted);margin:0}
   .feed-card .view-btn{
     flex:0 0 auto;height:48px;padding:0 16px;border-radius:16px;box-shadow:var(--shadow-btn);
@@ -479,7 +483,7 @@ function card(ev){
   if (ev.person_count) metaBits.push(`People: ${ev.person_count}`);
   metaBits.push(when(ev));
 
-  const search = `${ev.clinic_name} ${ev.camera_name} ${ev.description}`.toLowerCase();
+  const search = `${ev.clinic_name} ${ev.camera_name} ${ev.description} ${ev.reason || ""}`.toLowerCase();
 
   return `<article class="feed-card" data-search="${esc(search)}">
     ${thumb}
@@ -492,6 +496,7 @@ function card(ev){
         <span class="camera">${esc(ev.camera_name)}</span>
       </div>
       <p class="desc">${esc(ev.description)}</p>
+      ${ev.reason ? `<p class="reason ${cls}">Why: ${esc(ev.reason)}</p>` : ""}
       <p class="subtle">${metaBits.map(esc).join(" &middot; ")}</p>
     </div>
     ${ev.screenshot_path

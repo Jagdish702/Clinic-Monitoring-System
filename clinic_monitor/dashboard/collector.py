@@ -119,6 +119,23 @@ def create_app(db: "Database | None" = None) -> Flask:
             return jsonify(error="insert failed"), 500
         return jsonify(ok=True), 201
 
+    @app.route("/collect/incidents", methods=["POST"])
+    def collect_incident():
+        body = request.get_json(silent=True) or {}
+        required = (
+            "clinic_name", "camera_name", "category", "severity", "status",
+            "first_seen_ts", "last_seen_ts",
+        )
+        missing = [k for k in required if body.get(k) is None]
+        if missing:
+            return jsonify(error=f"missing fields: {', '.join(missing)}"), 400
+        try:
+            database.upsert_incident(body)
+        except Exception as exc:                      # pragma: no cover - defensive
+            log.error("collector: failed to upsert pushed incident: %s", exc)
+            return jsonify(error="upsert failed"), 500
+        return jsonify(ok=True), 201
+
     @app.route("/collect/screenshot", methods=["POST"])
     def collect_screenshot():
         relative = request.args.get("path", "")

@@ -63,6 +63,30 @@ def _worse(a: str, b: str) -> str:
     return a if _SEVERITY_RANK.get(a, 0) >= _SEVERITY_RANK.get(b, 0) else b
 
 
+def _push(db: Any, incident_id: int) -> None:
+    """
+    Mirror one incident's current full state to the collector, the same
+    way insert_event()/insert_observation() already push their own tables.
+
+    Guarded by ``db._push`` exactly like those - False means this database
+    IS the collector's own copy, and pushing from there would try to reach
+    the collector from inside its own request handler. The origin's
+    ``incidents.id`` is only unique on that one VM, not across the fleet
+    (two clusters can both have an incident #49), so it rides along in the
+    payload only for logging - the collector matches rows by
+    (clinic, camera, first_seen_ts) instead, see
+    Database.upsert_incident().
+    """
+    if not getattr(db, "_push", False):
+        return
+    row = db.conn.execute(
+        "SELECT * FROM incidents WHERE id = ?", (incident_id,)
+    ).fetchone()
+    if row:
+        from storage import collector_client
+        collector_client.push("incidents", dict(row))
+
+
 def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
     """
     Resolve or continue an incident for this event's (clinic, camera), and
@@ -85,6 +109,11 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
     screenshot = payload.get("screenshot_path")
 
     if category == NORMAL:
+        resolved_id = db.conn.execute(
+            "SELECT id FROM incidents WHERE clinic_name = ? AND camera_name = ? "
+            "AND status = 'open'",
+            (clinic, camera),
+        ).fetchone()
         with db.conn as conn:
             # The resolving check's own screenshot becomes the incident's
             # "closing" image - last_screenshot_path already means "most
@@ -95,6 +124,8 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
                 "WHERE clinic_name = ? AND camera_name = ? AND status = 'open'",
                 (now, screenshot, clinic, camera),
             )
+        if resolved_id:
+            _push(db, int(resolved_id["id"]))
         return None
 
     severity = payload.get("severity", "Low")
@@ -119,6 +150,7 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
                     screenshot, existing["id"],
                 ),
             )
+        _push(db, int(existing["id"]))
         return int(existing["id"])
 
     with db.conn as conn:
@@ -133,7 +165,9 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
                 state, cluster, screenshot, screenshot,
             ),
         )
-        return int(cursor.lastrowid)
+        new_id = int(cursor.lastrowid)
+    _push(db, new_id)
+    return new_id
 
 
 SORT_KEYS = {

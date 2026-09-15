@@ -396,6 +396,50 @@ class Database:
             collector_client.push("observations", pushed)
         return row_id
 
+    def upsert_incident(self, payload: Dict[str, Any]) -> None:
+        """
+        Insert or update one incident row from a pushed collector payload.
+
+        Only ever called on the collector's own copy (self._push is False
+        there) - a satellite VM's classify_and_link() has already decided
+        whether this is a new incident or a continuing one and pushes its
+        full current state either way, so this just mirrors that state
+        rather than re-deriving it. The origin's own incidents.id is unique
+        only on that one VM (two different clusters can each have their own
+        incident #49), so rows here are matched by (clinic_name,
+        camera_name, first_seen_ts) instead - a fresh incident's creation
+        moment, which is what ties every update for its lifetime back to
+        the same row.
+        """
+        fields = (
+            "category", "severity", "status", "description", "last_seen_ts",
+            "resolved_ts", "state", "cluster", "first_screenshot_path",
+            "last_screenshot_path",
+        )
+        existing = self.conn.execute(
+            "SELECT id FROM incidents WHERE clinic_name = ? AND camera_name = ? "
+            "AND first_seen_ts = ?",
+            (payload["clinic_name"], payload["camera_name"], payload["first_seen_ts"]),
+        ).fetchone()
+        with self.conn as conn:
+            if existing:
+                conn.execute(
+                    f"UPDATE incidents SET {', '.join(f'{f} = ?' for f in fields)} "
+                    "WHERE id = ?",
+                    (*(payload.get(f) for f in fields), existing["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO incidents "
+                    f"(clinic_name, camera_name, first_seen_ts, {', '.join(fields)}) "
+                    f"VALUES (?, ?, ?, {', '.join('?' for _ in fields)})",
+                    (
+                        payload["clinic_name"], payload["camera_name"],
+                        payload["first_seen_ts"],
+                        *(payload.get(f) for f in fields),
+                    ),
+                )
+
     def get_observations(
         self, day: str, clinic_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:

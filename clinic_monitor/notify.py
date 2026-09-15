@@ -21,7 +21,10 @@ import logging
 import smtplib
 import ssl
 import time
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import config
@@ -39,18 +42,35 @@ def _cooldown_ok(key: Tuple[str, str]) -> bool:
     return last is None or (time.time() - last) >= config.EMAIL_COOLDOWN_MINUTES * 60
 
 
-def send_email(subject: str, body: str) -> bool:
+def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bool:
     """
-    Send one plain-text email to CM_EMAIL_TO. Never raises - a notification
-    failure must not be allowed to interrupt patrol or event logging, the
-    same contract collector_client.push() already keeps for the collector.
+    Send one email to CM_EMAIL_TO, plain text unless ``image_path`` points at
+    a real file - the evidence screenshot for a High-severity event - in
+    which case it's attached inline. Never raises - a notification failure
+    must not be allowed to interrupt patrol or event logging, the same
+    contract collector_client.push() already keeps for the collector.
     """
     if not config.EMAIL_ENABLED:
         return False
     if not (config.EMAIL_FROM and config.EMAIL_APP_PASSWORD and config.EMAIL_TO):
         log.warning("email alerts enabled but not fully configured - skipping")
         return False
-    msg = MIMEText(body)
+
+    image_bytes = None
+    if image_path is not None:
+        try:
+            image_bytes = image_path.read_bytes()
+        except OSError as exc:
+            log.warning("could not attach screenshot %s: %s", image_path, exc)
+
+    if image_bytes:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body))
+        image = MIMEImage(image_bytes, name=image_path.name)
+        image.add_header("Content-Disposition", "attachment", filename=image_path.name)
+        msg.attach(image)
+    else:
+        msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = config.EMAIL_FROM
     msg["To"] = ", ".join(config.EMAIL_TO)
@@ -85,7 +105,9 @@ def notify_high_severity(event: Dict[str, Any]) -> None:
         f"{description}\n"
         f"Reason: {event.get('reason', '')}\n"
     )
-    if send_email(subject, body):
+    screenshot = event.get("screenshot_path")
+    image_path = Path(config.SCREENSHOT_DIR) / screenshot if screenshot else None
+    if send_email(subject, body, image_path):
         _last_sent[key] = time.time()
 
 

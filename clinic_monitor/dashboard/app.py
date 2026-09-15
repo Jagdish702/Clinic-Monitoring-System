@@ -426,16 +426,20 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         day = request.args.get("day") or _today()
         on_disk = reporting.available_reports()
         observed = database.observed_clinics(day)
+        locations = scoring.clinic_locations(database)
 
         clinics = []
         seen = set()
         for name in observed:
             slug = reporting.clinic_slug(name)
             seen.add(slug)
+            state, cluster = locations.get(name, (None, None))
             clinics.append(
                 {
                     "name": name,
                     "slug": slug,
+                    "state": state or "",
+                    "cluster": cluster or "",
                     "has_report": day in on_disk.get(slug, []),
                     "days": on_disk.get(slug, []),
                     "observed_today": True,
@@ -445,17 +449,25 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         for slug, days in on_disk.items():
             if slug in seen:
                 continue
+            name = slug.replace("_", " ")
+            state, cluster = locations.get(name, (None, None))
             clinics.append(
                 {
-                    "name": slug.replace("_", " "),
+                    "name": name,
                     "slug": slug,
+                    "state": state or "",
+                    "cluster": cluster or "",
                     "has_report": day in days,
                     "days": days,
                     "observed_today": False,
                 }
             )
 
-        clinics.sort(key=lambda c: (not c["observed_today"], c["name"]))
+        # State -> Cluster -> Clinic, so the fleet reads the same way here as
+        # everywhere else it's grouped (the /scores breakdown, the sidebar
+        # chips) instead of one flat alphabetical list.
+        clinics.sort(key=lambda c: (c["state"] or "￿", c["cluster"] or "￿",
+                                     c["name"]))
         return jsonify(
             {"day": day, "count": len(clinics), "clinics": clinics,
              "days_with_data": database.observed_days(limit=14)}
@@ -534,13 +546,13 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # QUOTE_ALL keeps a clinic name with a comma in it from splitting into
         # two columns, whatever spreadsheet opens the file.
         writer = csv.writer(buffer, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
-        writer.writerow(["Clinic", "Date", "Opening time", "Closing time",
-                         "Status", "Offline minutes", "Checks"])
+        writer.writerow(["State", "Cluster", "Clinic", "Date", "Opening time",
+                         "Closing time", "Status", "Offline minutes", "Checks"])
         for row in rows:
             writer.writerow([
-                row["clinic"], row["date"], row["opening_time"],
-                row["closing_time"], row["status"], row["offline_minutes"],
-                row["checks"],
+                row.get("state_name", ""), row.get("cluster", ""), row["clinic"],
+                row["date"], row["opening_time"], row["closing_time"],
+                row["status"], row["offline_minutes"], row["checks"],
             ])
 
         # utf-8-sig: Excel reads a plain UTF-8 CSV as the local codepage and

@@ -23,6 +23,8 @@ except ImportError:                                   # pragma: no cover
 
 
 HEADERS = (
+    ("State", 16),
+    ("Cluster", 16),
     ("Clinic", 26),
     ("Date", 12),
     ("Opening time", 14),
@@ -96,6 +98,8 @@ def build_workbook(day: str, rows: Sequence[Dict[str, Any]]) -> "Workbook":
         line = offset + 2
         status = row.get("status", "")
         values = (
+            row.get("state_name", ""),
+            row.get("cluster", ""),
             row.get("clinic", ""),
             _as_date(row.get("date", "")) or row.get("date", ""),
             _as_time(row.get("opening_time", "")),
@@ -107,18 +111,18 @@ def build_workbook(day: str, rows: Sequence[Dict[str, Any]]) -> "Workbook":
         for index, value in enumerate(values, start=1):
             cell = sheet.cell(row=line, column=index, value=value)
             cell.border = border
-            if index == 2:
+            if index == 4:
                 cell.number_format = "yyyy-mm-dd"
                 cell.alignment = centre
-            elif index in (3, 4):
+            elif index in (5, 6):
                 # A blank means nobody was ever seen, which is information; an
                 # empty cell says it more clearly than "00:00" would.
                 cell.number_format = "hh:mm"
                 cell.alignment = centre
-            elif index in (6, 7):
+            elif index in (8, 9):
                 cell.number_format = "0"
                 cell.alignment = centre
-            elif index == 5:
+            elif index == 7:
                 cell.alignment = centre
                 if _FILL.get(status):
                     cell.fill = _FILL[status]

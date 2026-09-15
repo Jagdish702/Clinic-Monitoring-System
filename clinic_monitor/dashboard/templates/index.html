@@ -197,6 +197,13 @@
   .clinic-card .st{font-size:12px;color:var(--muted)}
   .clinic-card .st.ready{color:var(--low-fg)}
   .clinic-card .st.missing{color:var(--med-fg)}
+  .report-group{margin:22px 0 10px}
+  .report-group:first-child{margin-top:0}
+  .report-group-state{font-size:15px;font-weight:700;color:var(--brand);
+                       margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .report-group-cluster{font-size:12px;font-weight:600;color:var(--muted);
+                         text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px}
+  .report-group-cluster:first-of-type{margin-top:0}
   .report h1{font-size:20px;margin:0 0 6px}
   .report h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;
              border-bottom:1px solid var(--line);color:var(--brand)}
@@ -682,7 +689,7 @@ function setCsvDay(day){
   csvLink.href = "/api/reports/csv?day=" + encodeURIComponent(day);
   csvLink.setAttribute("download", `clinic-daily-report-${day}.csv`);
   csvNote.textContent =
-    `every clinic for ${day} — name, date, opening, closing, status`;
+    `every clinic for ${day} — state, cluster, name, date, opening, closing, status`;
 }
 
 function showList(){
@@ -712,17 +719,38 @@ async function loadClinics(day){
     return;
   }
 
-  listEl.innerHTML = `<p class="note">${data.clinics.length} clinic(s) ·
-      click one to read its report for ${esc(data.day)}</p>
-    <div class="clinic-grid">` +
-    data.clinics.map(c => `
+  // State -> Cluster -> Clinic, repeated per group, matching the same
+  // hierarchy used everywhere else in the app (sidebar chips, /scores).
+  const byState = new Map();
+  for (const c of data.clinics){
+    const st = c.state || "Unassigned", cl = c.cluster || "Unassigned";
+    if (!byState.has(st)) byState.set(st, new Map());
+    const byCluster = byState.get(st);
+    if (!byCluster.has(cl)) byCluster.set(cl, []);
+    byCluster.get(cl).push(c);
+  }
+
+  const cardHtml = c => `
       <button class="clinic-card" data-slug="${esc(c.slug)}" data-name="${esc(c.name)}">
         <span class="nm">${esc(c.name)}</span>
         <span class="st ${c.has_report ? "ready" : "missing"}">
           ${c.has_report ? "report ready" :
             (c.observed_today ? "patrolled — press Update reports" : "no report for this day")}
         </span>
-      </button>`).join("") + "</div>";
+      </button>`;
+
+  let groupsHtml = "";
+  for (const [st, byCluster] of byState){
+    groupsHtml += `<div class="report-group"><div class="report-group-state">${esc(st)}</div>`;
+    for (const [cl, list] of byCluster){
+      groupsHtml += `<div class="report-group-cluster">${esc(cl)}</div>
+        <div class="clinic-grid">${list.map(cardHtml).join("")}</div>`;
+    }
+    groupsHtml += "</div>";
+  }
+
+  listEl.innerHTML = `<p class="note">${data.clinics.length} clinic(s) ·
+      click one to read its report for ${esc(data.day)}</p>` + groupsHtml;
 
   listEl.querySelectorAll(".clinic-card").forEach(card => {
     card.onclick = () => openReport(card.dataset.slug, card.dataset.name);

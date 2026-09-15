@@ -717,6 +717,24 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
     return path
 
 
+def _clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+    """
+    clinic_name -> (state, cluster), one pick per clinic.
+
+    A local copy of analysis.scoring.clinic_locations() rather than an
+    import - scoring.py itself imports from this module, so importing it
+    back here would be circular.
+    """
+    rows = db.conn.execute(
+        "SELECT clinic_name, state, cluster, COUNT(*) AS n FROM observations "
+        "GROUP BY clinic_name, state, cluster ORDER BY clinic_name, n DESC"
+    ).fetchall()
+    picked: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+    for row in rows:
+        picked.setdefault(row["clinic_name"], (row["state"], row["cluster"]))
+    return picked
+
+
 def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str]]:
     """
     One row per clinic for a day: when it opened, when it closed, and which of
@@ -745,9 +763,19 @@ def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str
         log.debug("could not read status summary for %s: %s", day, exc)
         status = {}
 
-    names = sorted(set(db.observed_clinics(day)) | set(status))
+    locations = _clinic_locations(db)
+    # Known state/cluster groups sort first, alphabetically; a clinic with
+    # neither (predates CM_STATE_NAME/CM_CLUSTER_NAME, or never set them)
+    # sorts after all of them rather than before, so it doesn't jump the
+    # queue ahead of every real group.
+    names = sorted(
+        set(db.observed_clinics(day)) | set(status),
+        key=lambda c: (locations.get(c, (None, None))[0] or "￿",
+                       locations.get(c, (None, None))[1] or "￿", c),
+    )
     summary: List[Dict[str, str]] = []
     for clinic in names:
+        clinic_state, cluster = locations.get(clinic, (None, None))
         rows = db.get_observations(day, clinic)
         hours = operating_hours(rows, indoor_cameras(roles, clinic)) if rows else None
         opened = hours["opened"] if hours else None
@@ -759,21 +787,23 @@ def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str
         down = sum(o.get("minutes") or 0 for o in mine)
 
         if opened:
-            state = "opened"
+            op_status = "opened"
         elif checks and failures == checks:
             # Every attempt that day was refused: nothing was ever watched.
-            state = "offline"
+            op_status = "offline"
         elif not rows:
-            state = "offline"
+            op_status = "offline"
         else:
-            state = "closed"
+            op_status = "closed"
 
         summary.append({
             "clinic": clinic,
+            "state_name": clinic_state or "",
+            "cluster": cluster or "",
             "date": day,
             "opening_time": _hhmm(opened) if opened else "",
             "closing_time": _hhmm(closed) if closed else "",
-            "status": state,
+            "status": op_status,
             "offline_minutes": str(down) if down else "0",
             "checks": str(checks or len(visit_times(rows))),
         })

@@ -719,15 +719,23 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
 
 def _clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
     """
-    clinic_name -> (state, cluster), one pick per clinic.
+    clinic_name -> (state, cluster), the most recently observed tag.
+
+    Most-recent, not most-common: a clinic patrolled since before
+    CM_STATE_NAME/CM_CLUSTER_NAME existed has thousands of old untagged
+    rows outnumbering its correctly-tagged recent ones, so picking by
+    volume would keep reporting it as unassigned forever even though every
+    current row already carries the right state/cluster.
 
     A local copy of analysis.scoring.clinic_locations() rather than an
     import - scoring.py itself imports from this module, so importing it
     back here would be circular.
     """
     rows = db.conn.execute(
-        "SELECT clinic_name, state, cluster, COUNT(*) AS n FROM observations "
-        "GROUP BY clinic_name, state, cluster ORDER BY clinic_name, n DESC"
+        "SELECT clinic_name, state, cluster FROM observations "
+        "WHERE state IS NOT NULL AND state != '' "
+        "AND cluster IS NOT NULL AND cluster != '' "
+        "ORDER BY clinic_name, ts_epoch DESC"
     ).fetchall()
     picked: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
     for row in rows:

@@ -127,6 +127,13 @@ hours, and only if the image is in color (skip on a greyscale/IR frame):
 Camera health:
 - If this camera's own feed looks frozen, blank, heavily obstructed, or
   otherwise clearly not working, say so.
+- This applies every time the obstruction is still there, not just the
+  first time you notice it - do not describe the same spiderweb, smudge,
+  dirt, or distortion as "just an empty room" on a later check. If your own
+  description mentions the view being obstructed, blurred, or distorted
+  (spiderwebs, cobwebs, smudges, dirt, glare, or similar), category must be
+  "camera_health" and severity "High" on every single check where that is
+  true, however many times in a row that is.
 
 Rules:
 - Judge only what is visible. Do not speculate about identities.
@@ -158,7 +165,11 @@ Rules:
     medical waste not segregated, sample area not disinfected, no
     mask/gloves during blood collection, staff eating with a person
     present, camera feed not working.
-- If the view is unclear or empty, use severity "Low" and say so.
+- If the view is unclear or empty because the room is simply empty or the
+  angle is awkward, use severity "Low" and say so. If it is unclear because
+  the camera itself is obstructed, dirty, or distorted, that is the
+  Camera health rule above (camera_health/High), not this one - the two are
+  not the same "unclear".
 - Name the specific checklist item that drove the severity in "reason" -
   do not just repeat "unusual activity".
 - "category" names WHICH checklist item (or "emergency") drove the severity -
@@ -257,6 +268,26 @@ def _normalise_category(value: Any, immediate_attention: bool) -> str:
     # fall back on the one other signal that already distinguishes a genuine
     # emergency from everything else the checklist covers.
     return "emergency" if immediate_attention else "normal"
+
+
+# Real, observed inconsistency: the same spiderweb-obstructed frame at
+# CUREBAY JASIPUR got "camera_health"/High on some checks and "normal"/Low
+# on others - Gemini's own free-text description already named the
+# obstruction every time ("heavily obstructed", "heavily distorted... by
+# spiderweb-like artifacts"), it just didn't always carry that through to
+# the structured category field. classify_and_link() treats any "normal"
+# reading as the problem being fixed, so a category that flip-flops on an
+# unchanging physical obstruction auto-resolves the incident without the
+# obstruction ever actually clearing.
+OBSTRUCTION_KEYWORDS = (
+    "spiderweb", "spider web", "cobweb", "heavily obstructed",
+    "heavily distorted", "heavily blurred", "smudge", "smudged",
+)
+
+
+def _mentions_obstruction(text: str) -> bool:
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in OBSTRUCTION_KEYWORDS)
 
 
 def _normalise_status(value: Any) -> str:
@@ -605,12 +636,23 @@ class GeminiAnalyzer:
         immediate = _coerce_bool(data.get("immediate_attention"))
         if immediate and severity != "High":
             severity = "High"  # keep the two fields consistent
+
+        description = str(data.get("description") or "No description returned.").strip()
+        reason = str(data.get("reason") or "").strip()
+        category = _normalise_category(data.get("category"), immediate)
+        # The model's own words override its own field: if it just described
+        # an obstruction, "normal" cannot be the category no matter what the
+        # structured field said - see OBSTRUCTION_KEYWORDS above.
+        if category != "camera_health" and _mentions_obstruction(f"{description} {reason}"):
+            category = "camera_health"
+            severity = "High"
+
         return SceneAnalysis(
-            description=str(data.get("description") or "No description returned.").strip(),
+            description=description,
             clinic_status=_normalise_status(data.get("clinic_status")),
             severity=severity,
-            category=_normalise_category(data.get("category"), immediate),
-            reason=str(data.get("reason") or "").strip(),
+            category=category,
+            reason=reason,
             staff_present=_coerce_bool(data.get("staff_present")),
             person_present=_coerce_bool(data.get("person_present")),
             phone_visible=_coerce_bool(data.get("phone_visible")),

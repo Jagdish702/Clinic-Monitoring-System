@@ -74,6 +74,17 @@
   .dev.bad{color:var(--high-fg)}
   .dev.na{color:var(--muted);font-weight:400}
   .table-wrap{overflow-x:auto}
+  .empty{color:var(--muted);font-size:13px;padding:16px}
+  tr.row-link:hover{background:var(--bg);cursor:pointer}
+
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;
+    font:500 11px var(--font-ui);}
+  .pill.high{background:var(--high-bg);color:var(--high-fg)}
+  .pill.medium{background:var(--med-bg);color:var(--med-fg)}
+  .pill.low{background:var(--low-bg);color:var(--low-fg)}
+  .status{display:inline-flex;padding:3px 10px;border-radius:100px;font:500 11px var(--font-ui);}
+  .status.open{background:var(--high-bg);color:var(--high-fg)}
+  .status.resolved{background:var(--bg);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -150,6 +161,53 @@
       {% if not deviations|selectattr('observed')|list %}
         <p class="hint" style="padding:16px 0 0">No days with observed opening/closing in this window yet.</p>
       {% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Incidents</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Camera</th><th>Category</th><th>Severity</th><th>Status</th>
+          <th>First Seen</th><th>Last Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for i in incidents %}
+          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
+            <td>{{ i.camera_name }}</td>
+            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
+            <td><span class="pill {{ i.severity|lower }}">{{ i.severity }} ({{ i.severity_score }})</span></td>
+            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
+            <td>{{ i.first_seen_str }}</td>
+            <td>{{ i.last_seen_str }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not incidents %}<p class="empty">No incidents recorded for this clinic.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Recent events</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Camera</th><th>Severity</th><th>Description</th><th>When</th>
+        </tr></thead>
+        <tbody>
+          {% for ev in recent_events %}
+          <tr>
+            <td>{{ ev.camera_name }}</td>
+            <td><span class="pill {{ ev.severity|lower }}">{{ ev.severity }}</span></td>
+            <td>{{ ev.description }}</td>
+            <td>{{ ev.timestamp }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not recent_events %}<p class="empty">No events recorded for this clinic yet.</p>{% endif %}
       </div>
     </div>
   </main>

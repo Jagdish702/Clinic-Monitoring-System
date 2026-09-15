@@ -332,8 +332,9 @@
       <div class="topbar-right">
         <div class="search">
           <img src="{{ url_for('static', filename='icons/search.svg') }}" alt="">
-          <input type="text" id="search-box" placeholder="Search clinics, cameras...">
+          <input type="text" id="search-box" placeholder="Search clinics, cameras... (Enter opens the clinic)">
         </div>
+        <span id="search-no-match" class="subtle" style="color:var(--high-fg);display:none">No clinic matches that</span>
         {% if counts.High %}
           <a class="chip high" href="?severity=High&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
             Review {{ counts.High }} High
@@ -528,6 +529,29 @@ function applySearchFilter(){
   });
 }
 document.getElementById("search-box").addEventListener("input", applySearchFilter);
+
+// Every known clinic name, for Enter-to-open below - typing alone still
+// only live-filters the visible feed above, which is all it ever did; this
+// is the one thing that changes: Enter jumps to that clinic's full page
+// (camera availability, opening/closing, its incidents, its own recent
+// events) instead of leaving you staring at a filtered list that's empty
+// whenever the clinic just isn't in the currently-loaded page of events.
+const CLINIC_NAMES = {{ clinics | map(attribute='value') | list | tojson }};
+
+document.getElementById("search-box").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const term = (e.target.value || "").trim().toLowerCase();
+  const noMatch = document.getElementById("search-no-match");
+  if (!term) return;
+  const exact = CLINIC_NAMES.find(name => name.toLowerCase() === term);
+  const match = exact || CLINIC_NAMES.find(name => name.toLowerCase().includes(term));
+  if (match) {
+    noMatch.style.display = "none";
+    window.location.href = "/clinic/" + encodeURIComponent(match);
+  } else {
+    noMatch.style.display = "inline";
+  }
+});
 
 refresh();
 setInterval(refresh, REFRESH_MS);

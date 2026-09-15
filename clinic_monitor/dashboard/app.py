@@ -288,6 +288,15 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                     entry["observed"] = True
             deviations.append(entry)
 
+        # This clinic's own incidents (its slice of /incidents) and its own
+        # recent events (its slice of the main feed) - "all the data for
+        # this clinic in one place" means pulling both in here rather than
+        # sending someone to two more pages to piece it together themselves.
+        incidents = incidents_lib.list_incidents(database, clinic=clinic_name)
+        recent_events = _annotate(
+            database.get_events(clinic_name=clinic_name, limit=20)
+        )
+
         return render_template(
             "clinic.html",
             clinic_name=clinic_name,
@@ -296,6 +305,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             expected_open=config.EXPECTED_OPEN,
             expected_close=config.EXPECTED_CLOSE,
             deviations=deviations,
+            incidents=incidents,
+            recent_events=recent_events,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

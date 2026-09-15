@@ -209,7 +209,7 @@
   .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
   .report th{background:var(--bg);font-weight:600;color:var(--muted)}
   .note{color:var(--muted);font-size:12px}
-  #csv-bar{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);
+  #csv-bar{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);
            display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   #download-csv,#download-csv-plain{text-decoration:none;display:inline-block}
   #offline-body h3{font-size:14px;font-weight:500;color:var(--brand);margin:4px 0 10px}
@@ -339,11 +339,6 @@
           <input type="text" id="search-box" placeholder="Search clinics, cameras... (Enter opens the clinic)">
         </div>
         <span id="search-no-match" class="subtle" style="color:var(--high-fg);display:none">No clinic matches that</span>
-        <a class="btn primary" href="/api/reports/xlsx" download
-           title="Today's daily report - every clinic: name, date, opening, closing, status">
-          Daily report (Excel)
-        </a>
-        <a class="btn" href="/api/reports/csv" download title="Same report, as .csv">.csv</a>
         {% if counts.High %}
           <a class="chip high" href="?severity=High&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
             Review {{ counts.High }} High
@@ -438,15 +433,15 @@
       <button class="btn" id="reports-close">Close</button>
     </div>
     <div class="sheet-body">
-      <div id="reports-list"></div>
-      <div id="report-view" class="report" hidden></div>
       <div id="csv-bar">
         <a class="btn primary" id="download-csv" href="/api/reports/xlsx" download>
-          Daily report (Excel)
+          Clinic Operations Report
         </a>
         <a class="btn" id="download-csv-plain" href="/api/reports/csv" download>.csv</a>
         <span class="note" id="csv-note"></span>
       </div>
+      <div id="reports-list"></div>
+      <div id="report-view" class="report" hidden></div>
     </div>
   </div>
 </div>

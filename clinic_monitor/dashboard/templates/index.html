@@ -339,6 +339,11 @@
           <input type="text" id="search-box" placeholder="Search clinics, cameras... (Enter opens the clinic)">
         </div>
         <span id="search-no-match" class="subtle" style="color:var(--high-fg);display:none">No clinic matches that</span>
+        <a class="btn primary" href="/api/reports/xlsx" download
+           title="Today's daily report - every clinic: name, date, opening, closing, status">
+          Daily report (Excel)
+        </a>
+        <a class="btn" href="/api/reports/csv" download title="Same report, as .csv">.csv</a>
         {% if counts.High %}
           <a class="chip high" href="?severity=High&clinic={{ clinic }}&state={{ state }}&cluster={{ cluster }}">
             Review {{ counts.High }} High

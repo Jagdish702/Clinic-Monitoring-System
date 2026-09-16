@@ -1,13 +1,20 @@
 """
 Stage 8 - email escalation.
 
-One notification list, three triggers, each on its own per-(clinic, trigger)
-cooldown so a stuck camera or a long outage cannot spam the inbox:
+One notification list, three triggers, each on its own cooldown so a stuck
+camera or a long outage cannot spam the inbox:
 
-- High severity event    -> immediately, from EventLogger.log_event()
+- High severity event    -> immediately, from EventLogger.log_event(),
+  a threshold               per (clinic, trigger)
 - Clinic offline past    -> from Database.record_clinic_status(), once the
-  a threshold               current offline streak crosses EMAIL_OFFLINE_MINUTES
-- Low daily Clinic Score -> from patrol.py, checked once per clinic per visit
+  a threshold               current offline streak crosses EMAIL_OFFLINE_MINUTES,
+                             per (cluster, trigger) - one digest listing every
+                             clinic currently offline in the cluster, not one
+                             email per clinic, so a cluster-wide outage cannot
+                             fire a burst large enough to trip the mail
+                             provider's own daily sending limit
+- Low daily Clinic Score -> from patrol.py, checked once per clinic per
+                             visit, per (clinic, trigger)
 
 Every send goes through send_email(), which is a no-op (and never raises)
 when CM_EMAIL_ENABLED is unset - so a deployment that never configures this
@@ -36,6 +43,20 @@ log = logging.getLogger(__name__)
 # single long-running process; nothing here needs to survive a restart.
 _last_sent: Dict[Tuple[str, str], float] = {}
 
+# Set when the mail provider itself reports its sending limit exceeded (a
+# real Gmail 550 seen during the 2026-09-16 Berhampur outage, when the whole
+# cluster going offline at once fired one email per clinic and tripped the
+# free account's daily cap). Every other clinic's send would fail the exact
+# same way until the provider's own window clears, so sends are skipped
+# outright rather than retried - one log line instead of dozens.
+_quota_backoff_until = 0.0
+
+# Gmail's own wording for this condition ("550 5.4.5 Daily user sending
+# limit exceeded ..."); matched case-insensitively against the exception
+# text rather than the SMTP code alone, since a bare 550 covers other
+# rejections (bad recipient, policy) that should keep retrying normally.
+_QUOTA_ERROR_MARKER = "sending limit exceeded"
+
 
 def _cooldown_ok(key: Tuple[str, str]) -> bool:
     last = _last_sent.get(key)
@@ -54,6 +75,9 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
         return False
     if not (config.EMAIL_FROM and config.EMAIL_APP_PASSWORD and config.EMAIL_TO):
         log.warning("email alerts enabled but not fully configured - skipping")
+        return False
+    global _quota_backoff_until
+    if time.time() < _quota_backoff_until:
         return False
 
     image_bytes = None
@@ -83,7 +107,14 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
         log.info("email sent: %s", subject)
         return True
     except Exception as exc:                      # never let email break the caller
-        log.error("email send failed (%s): %s", subject, exc)
+        if _QUOTA_ERROR_MARKER in str(exc).lower():
+            _quota_backoff_until = time.time() + config.EMAIL_QUOTA_BACKOFF_MINUTES * 60
+            log.error(
+                "email provider sending limit exceeded (%s) - suppressing "
+                "all email sends for %d min", subject, config.EMAIL_QUOTA_BACKOFF_MINUTES,
+            )
+        else:
+            log.error("email send failed (%s): %s", subject, exc)
         return False
 
 
@@ -111,39 +142,68 @@ def notify_high_severity(event: Dict[str, Any]) -> None:
         _last_sent[key] = time.time()
 
 
-def notify_offline(
-    db: Any, clinic_name: str, state: Optional[str], cluster: Optional[str], reason: str
-) -> None:
+def _offline_minutes(db: Any, clinic_name: str) -> Optional[float]:
     """
-    Call right after a clinic_status "offline" row is written. Walks the
-    clinic's recent status history backward to find when the *current*
-    offline streak actually began - a single missed lap must not fire this,
-    only a streak that has run past EMAIL_OFFLINE_MINUTES.
+    How long a clinic's current offline streak has been running, or None if
+    its most recent check was not offline at all. Walks clinic_status
+    backward from the latest row to find when the streak began.
     """
-    key = (clinic_name, "offline")
-    if not _cooldown_ok(key):
-        return
     rows = db.conn.execute(
         "SELECT ts_epoch, status FROM clinic_status WHERE clinic_name = ? "
         "ORDER BY ts_epoch DESC LIMIT 50",
         (clinic_name,),
     ).fetchall()
+    if not rows or rows[0]["status"] != "offline":
+        return None
     streak_start = None
     for row in rows:
         if row["status"] != "offline":
             break
         streak_start = row["ts_epoch"]
-    if streak_start is None:
+    return (time.time() - streak_start) / 60 if streak_start is not None else None
+
+
+def notify_offline(
+    db: Any, clinic_name: str, state: Optional[str], cluster: Optional[str], reason: str
+) -> None:
+    """
+    Call right after a clinic_status "offline" row is written.
+
+    Rate-limited per cluster, not per clinic. A whole cluster going down at
+    once - one wedged emulator, one lost network link - used to fire one
+    email per clinic within minutes of each other: the 2026-09-16 Berhampur
+    outage sent about 20 of these back to back and tripped the mail
+    account's daily sending limit, silently dropping the rest of the day's
+    alerts fleet-wide. One email per cluster per cooldown window, listing
+    every clinic currently offline in it, says the same thing for a
+    fraction of the sends - and the clinic that triggered it still has to
+    have been down past EMAIL_OFFLINE_MINUTES, so a single missed lap still
+    cannot fire this.
+    """
+    key = (cluster or clinic_name, "offline")
+    if not _cooldown_ok(key):
         return
-    minutes_down = (time.time() - streak_start) / 60
-    if minutes_down < config.EMAIL_OFFLINE_MINUTES:
+    minutes_down = _offline_minutes(db, clinic_name)
+    if minutes_down is None or minutes_down < config.EMAIL_OFFLINE_MINUTES:
         return
-    subject = f"[OFFLINE] {clinic_name} unreachable for {int(minutes_down)} min"
+
+    others = db.currently_offline(cluster) if cluster else None
+    if not others:
+        others = [{"clinic_name": clinic_name, "reason": reason}]
+    lines = []
+    for row in others:
+        mins = _offline_minutes(db, row["clinic_name"])
+        down_for = f"{int(mins)} min" if mins is not None else "unknown"
+        lines.append(f"  - {row['clinic_name']}: down {down_for} - {row['reason'] or '-'}")
+
+    count = len(others)
+    if count > 1:
+        subject = f"[OFFLINE] {cluster or state} - {count} clinics unreachable"
+    else:
+        subject = f"[OFFLINE] {clinic_name} unreachable for {int(minutes_down)} min"
     body = (
-        f"Clinic: {clinic_name}\n"
         f"State / Cluster: {state or '-'} / {cluster or '-'}\n"
-        f"Offline for: {int(minutes_down)} minutes\n"
-        f"Last reason: {reason}\n"
+        f"{count} clinic(s) currently unreachable:\n\n" + "\n".join(lines) + "\n"
     )
     if send_email(subject, body):
         _last_sent[key] = time.time()

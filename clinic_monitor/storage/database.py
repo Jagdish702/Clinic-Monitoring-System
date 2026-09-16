@@ -504,6 +504,34 @@ class Database:
             },
         )
 
+    def currently_offline(
+        self, cluster: Optional[str] = None, day: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Every clinic whose most recent clinic_status check today says
+        offline, optionally narrowed to one cluster - lets notify.py roll a
+        cluster-wide outage up into a single digest email instead of firing
+        one per clinic (see notify.notify_offline).
+        """
+        day = day or datetime.now().strftime("%Y-%m-%d")
+        clauses = ["day = ?"]
+        params: List[Any] = [day]
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
+        where = " AND ".join(clauses)
+        rows = self.conn.execute(
+            "SELECT clinic_name, reason FROM ("
+            "  SELECT clinic_name, status, reason,"
+            "         ROW_NUMBER() OVER ("
+            "             PARTITION BY clinic_name ORDER BY ts_epoch DESC"
+            "         ) AS rn"
+            f"  FROM clinic_status WHERE {where}"
+            ") WHERE rn = 1 AND status = 'offline' ORDER BY clinic_name",
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def offline_periods(self, day: str) -> List[Dict[str, Any]]:
         """
         Stretches where a clinic could not be reached, one entry per outage.

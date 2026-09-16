@@ -292,6 +292,10 @@ EMAIL_LOW_SCORE_ENABLED = _env_bool("CM_EMAIL_LOW_SCORE_ENABLED", True)
 # Per (clinic, trigger) - so one bad camera or a long outage cannot spam the
 # inbox once a minute for as long as the condition holds.
 EMAIL_COOLDOWN_MINUTES = int(os.getenv("CM_EMAIL_COOLDOWN_MINUTES", "60"))
+# How long to stop attempting sends after the mail provider reports its own
+# sending-limit exceeded - retrying every other clinic's alert in the same
+# burst just fails the same way and floods the log for nothing.
+EMAIL_QUOTA_BACKOFF_MINUTES = int(os.getenv("CM_EMAIL_QUOTA_BACKOFF_MINUTES", "60"))
 
 # --------------------------------------------------------------------------- #
 # Stage 6 - dashboard

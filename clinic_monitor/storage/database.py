@@ -586,19 +586,34 @@ class Database:
             }
         return summary
 
-    def camera_descriptions(self, limit: int = 4000) -> List[Dict[str, Any]]:
+    def camera_descriptions(self, per_camera_limit: int = 300) -> List[Dict[str, Any]]:
         """
         Recent scene descriptions, used to infer whether a camera looks indoors
         or outdoors. Drawn from all history, not one day, because a camera's
         role does not change and more samples make the inference safer.
+
+        Capped per (clinic, camera), not with one flat LIMIT over the whole
+        fleet - a fleet-wide "most recent 4000" once meant camera-role
+        inference only ever saw the last ~15 hours of the *entire* fleet's
+        activity, because busier clusters filled the cap before a quieter
+        clinic's history was ever reached, silently discarding weeks of
+        evidence every time it ran. A per-camera cap gives every clinic its
+        own share regardless of how many other clusters exist or how busy
+        they are.
         """
         hide, hide_params = ignored_clause()
         rows = self.conn.execute(
-            "SELECT clinic_name, camera_name, description FROM events "
-            "WHERE description IS NOT NULL AND description != '' "
+            "SELECT clinic_name, camera_name, description FROM ("
+            "  SELECT clinic_name, camera_name, description,"
+            "         ROW_NUMBER() OVER ("
+            "             PARTITION BY clinic_name, camera_name"
+            "             ORDER BY ts_epoch DESC"
+            "         ) AS rn"
+            "  FROM events"
+            "  WHERE description IS NOT NULL AND description != '' "
             + (f"AND {hide} " if hide else "")
-            + "ORDER BY ts_epoch DESC LIMIT ?",
-            (*hide_params, int(limit)),
+            + ") WHERE rn <= ?",
+            (*hide_params, int(per_camera_limit)),
         ).fetchall()
         return [dict(row) for row in rows]
 

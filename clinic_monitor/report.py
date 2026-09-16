@@ -71,6 +71,48 @@ def _active(row: dict) -> bool:
     return (row.get("max_persons") or 0) > 0 or (row.get("motion_frames") or 0) > 0
 
 
+# Substrings of a description that explicitly say nobody is in frame, or that
+# the frame is too obstructed/distorted to show anyone reliably - either way a
+# lone YOLO person-box on it is not trustworthy. A local copy of
+# ai.gemini_analyzer.OBSTRUCTION_KEYWORDS rather than an import - that module
+# pulls in cv2/numpy/google-genai, which the dashboard-only install (this
+# module's other caller) never needs.
+_EMPTY_PHRASES = (
+    "no staff", "no persons present", "no persons visible", "no people present",
+    "no people visible", "no one present", "no one visible", "nobody present",
+    "nobody visible", "no patients visible", "no patients present",
+    "empty clinic", "empty and closed", "empty facility",
+)
+_OBSTRUCTION_PHRASES = (
+    "spiderweb", "spider web", "cobweb", "heavily obstructed",
+    "heavily distorted", "heavily blurred", "smudge", "smudged",
+)
+
+
+def _gemini_contradicts_person(row: dict) -> bool:
+    """
+    Whether Gemini's own read of this exact frame says there is nobody in it
+    (or that the frame is too obstructed to show anyone reliably), directly
+    contradicting a YOLO ``max_persons`` hit on the same frame.
+
+    Real example: CUREBAY BALANGA showed ``max_persons=1`` at 00:04 with
+    Gemini's own description reading "CCTV footage of the clinic reception
+    area at night showing no staff or persons present" - a YOLO false
+    detection on a noisy infrared frame, not a real person, and it opened the
+    clinic's day at midnight. CUREBAY JASIPUR did the same at 23:03 through a
+    spiderweb-obstructed lens: a garbled frame is not evidence of anyone
+    either. Only description text that explicitly says so overrides the
+    count - the mere absence of Gemini's own person flags is not enough,
+    since those flags are unset on rows written before they existed.
+    """
+    if row.get("clinic_status") == "Open":
+        return False
+    description = (row.get("description") or "").lower()
+    if any(phrase in description for phrase in _OBSTRUCTION_PHRASES):
+        return True
+    return any(phrase in description for phrase in _EMPTY_PHRASES)
+
+
 def _staffed(row: dict) -> bool:
     """
     Did this observation show a person?
@@ -88,7 +130,7 @@ def _staffed(row: dict) -> bool:
     half behind furniture. Trusting the box count alone erased that clinic's
     whole day.
     """
-    if (row.get("max_persons") or 0) > 0:
+    if (row.get("max_persons") or 0) > 0 and not _gemini_contradicts_person(row):
         return True
     if row.get("staff_present") or row.get("person_present"):
         return True

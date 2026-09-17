@@ -571,6 +571,22 @@ def main(argv: Optional[List[str]] = None) -> int:
                 reason = str(exc).split(" - ")[0]
                 stats.skipped[name] = reason
                 print(f"    skipped: {reason}")
+                # Counts toward the same stall-recovery escalation as a
+                # frozen camera feed (below). Measured in production on two
+                # separate clusters on consecutive days (Berhampur, then
+                # Raipur): Hik-Connect itself wedged - "did not come to the
+                # foreground" - on every single clinic in the rotation, round
+                # after round, for hours, because this exception was never
+                # wired into `stuck` at all; the app/emulator-restart ladder
+                # below only ever fired for frozen frames, so nothing here
+                # ever self-recovered without someone restarting the service
+                # by hand. A genuinely offline clinic still only costs one
+                # increment - the very next healthy clinic resets it to zero,
+                # same tolerance the frozen-feed path already has - but every
+                # clinic failing this way back to back is not a run of
+                # coincidental device outages, it is our own screen not
+                # responding.
+                stuck += 1
                 # Record it: without a row here a skipped clinic leaves no
                 # trace at all, and afterwards nobody can say when a site went
                 # down or how long it stayed down.

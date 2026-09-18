@@ -95,8 +95,14 @@ def is_ignored_camera(name: str) -> bool:
 # IGNORED_CAMERAS above, which hides individual channels within a clinic
 # that is still otherwise visited. Some Hik-Connect accounts have a device
 # in their list that isn't a clinic at all (e.g. the office itself, used for
-# testing the NVR setup) - exact match against the on-screen device label,
-# including any serial suffix Hik-Connect appends.
+# testing the NVR setup, or a device shared into the account rather than
+# owned by it - Hik-Connect showed one such device as plain "Sharing" on
+# most scans, but this is not perfectly stable: the same restarted patrol
+# still visited it once right after being told to ignore it, so its label
+# apparently isn't always byte-identical between scans - some scans likely
+# render an appended device-count badge this list was never told about. Set
+# this to the shortest stable prefix of the label (e.g. "Sharing"), not
+# necessarily the full string including any suffix Hik-Connect appends.
 IGNORED_CLINICS = frozenset(
     name.strip()
     for name in os.getenv("CM_IGNORED_CLINICS", "").split(",")
@@ -105,8 +111,19 @@ IGNORED_CLINICS = frozenset(
 
 
 def is_ignored_clinic(name: str) -> bool:
-    """True for a device that should never appear in the patrol rotation."""
-    return name.strip() in IGNORED_CLINICS
+    """
+    True for a device that should never appear in the patrol rotation.
+
+    Matches by prefix, not exact equality, precisely because the on-screen
+    label for a device like this is not always identical between scans (see
+    IGNORED_CLINICS above) - a prefix still correctly leaves an unrelated
+    real clinic alone unless its name happens to start with the same text.
+    """
+    stripped = name.strip()
+    return any(
+        stripped == ignored or stripped.startswith(ignored)
+        for ignored in IGNORED_CLINICS
+    )
 
 
 # How many clinics may read as entirely frozen, one after another, before we

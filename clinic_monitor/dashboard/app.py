@@ -230,6 +230,13 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             if role == "outdoor" and event.get("clinic_status"):
                 event["clinic_status_raw"] = event["clinic_status"]
                 event["clinic_status"] = None
+            # A real date and time, not the raw stored ISO string (which
+            # carries whatever offset it was written with) - ts_epoch is an
+            # actual Unix timestamp, so this reads correctly regardless.
+            if event.get("ts_epoch") is not None:
+                event["timestamp_display"] = datetime.fromtimestamp(
+                    event["ts_epoch"]
+                ).strftime("%Y-%m-%d %H:%M")
         return events
 
     @app.route("/clinic/<clinic_name>")

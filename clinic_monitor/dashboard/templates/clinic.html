@@ -192,7 +192,7 @@
         {% for v in latest_views %}
         <div class="view-card">
           <img src="/screenshots/{{ v.screenshot_path }}" alt="{{ v.camera_name }} latest view">
-          <div class="meta"><b>{{ v.camera_name }}</b><br>{{ v.timestamp }}</div>
+          <div class="meta"><b>{{ v.camera_name }}</b><br>{{ v.timestamp_display or v.timestamp }}</div>
         </div>
         {% endfor %}
       </div>
@@ -302,7 +302,7 @@
             <td>{{ ev.camera_name }}</td>
             <td><span class="pill {{ ev.severity|lower }}">{{ ev.severity }}</span></td>
             <td>{{ ev.description }}</td>
-            <td>{{ ev.timestamp }}</td>
+            <td>{{ ev.timestamp_display or ev.timestamp }}</td>
           </tr>
           {% endfor %}
         </tbody>

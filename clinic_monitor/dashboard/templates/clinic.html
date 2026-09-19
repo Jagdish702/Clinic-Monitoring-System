@@ -85,6 +85,20 @@
   .status{display:inline-flex;padding:3px 10px;border-radius:100px;font:500 11px var(--font-ui);}
   .status.open{background:var(--high-bg);color:var(--high-fg)}
   .status.resolved{background:var(--bg);color:var(--muted)}
+
+  td.problem{background:var(--high-bg);color:var(--high-fg);font-weight:600}
+  td.watch{background:var(--med-bg);color:var(--med-fg);font-weight:600}
+  .views-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .view-card{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    overflow:hidden}
+  .view-card img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg)}
+  .view-card .meta{padding:8px 12px;font-size:12px;color:var(--muted)}
+  .view-card .meta b{color:var(--text);font-weight:600}
+  .concern-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .concern-card{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+  .concern-card .count{font:600 22px var(--font-ui)}
+  .concern-card .cat{font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -110,6 +124,42 @@
       <p class="page-sub">Camera availability and schedule deviation for this clinic.</p>
     </div>
 
+    <div class="section">
+      <h2>Timelines × Metrics</h2>
+      <p class="hint">Problem cells highlighted: Timeliness/Camera Availability below threshold, High/Medium % above, ETTR over 4 hours.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Window</th>
+          <th class="num">Timeliness</th>
+          <th class="num">Camera Availability</th>
+          <th class="num">High %</th>
+          <th class="num">Medium %</th>
+          <th class="num">ETTR (min)</th>
+          <th class="num">Overall</th>
+        </tr></thead>
+        <tbody>
+          {% for m in timeline_metrics %}
+          <tr>
+            <td>{{ m.window }}</td>
+            <td class="num {{ 'problem' if m.timeliness is not none and m.timeliness < 70 }}">
+              {{ '%.0f'|format(m.timeliness) if m.timeliness is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.camera_availability is not none and m.camera_availability < 80 }}">
+              {{ '%.0f'|format(m.camera_availability) if m.camera_availability is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.high_pct and m.high_pct > 10 }}">
+              {{ '%.0f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
+            <td class="num {{ 'watch' if m.medium_pct and m.medium_pct > 25 }}">
+              {{ '%.0f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.ettr_minutes and m.ettr_minutes > 240 }}">
+              {{ '%.0f'|format(m.ettr_minutes) if m.ettr_minutes is not none else '—' }}</td>
+            <td class="num">{{ '%.0f'|format(m.overall) if m.overall is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
     <div class="cards">
       <div class="stat-card">
         <p class="label">Camera Availability</p>
@@ -119,6 +169,81 @@
         </div>
         <p class="sub">Out of {{ camera_total }} cameras seen for this clinic in the last 7 days
           (no fixed total is configured for it), {{ camera_available }} had a usable reading today.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Top areas of concern — last 30 days</h2>
+      <div class="concern-grid">
+        {% for c in top_concerns %}
+        <div class="concern-card">
+          <span class="pill {{ c.worst_severity|lower }}">{{ c.worst_severity }}</span>
+          <span class="count">{{ c.count }}</span>
+          <span class="cat">{{ c.category_group }} · {{ c.category }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% if not top_concerns %}<p class="empty">No non-normal categories recorded in the last 30 days.</p>{% endif %}
+    </div>
+
+    <div class="section">
+      <h2>Latest view</h2>
+      <div class="views-grid">
+        {% for v in latest_views %}
+        <div class="view-card">
+          <img src="/screenshots/{{ v.screenshot_path }}" alt="{{ v.camera_name }} latest view">
+          <div class="meta"><b>{{ v.camera_name }}</b><br>{{ v.timestamp }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if not latest_views %}<p class="empty">No screenshot on file yet for this clinic.</p>{% endif %}
+    </div>
+
+    <div class="section">
+      <h2>High concern cases — last 30 days</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Camera</th><th>Category</th><th>Status</th>
+          <th>First Seen</th><th>Last Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for i in high_cases %}
+          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
+            <td>{{ i.camera_name }}</td>
+            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
+            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
+            <td>{{ i.first_seen_str }}</td>
+            <td>{{ i.last_seen_str }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not high_cases %}<p class="empty">No High-severity cases in the last 30 days.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Medium concern cases — last 30 days</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Camera</th><th>Category</th><th>Status</th>
+          <th>First Seen</th><th>Last Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for i in medium_cases %}
+          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
+            <td>{{ i.camera_name }}</td>
+            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
+            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
+            <td>{{ i.first_seen_str }}</td>
+            <td>{{ i.last_seen_str }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not medium_cases %}<p class="empty">No Medium-severity cases in the last 30 days.</p>{% endif %}
       </div>
     </div>
 
@@ -161,31 +286,6 @@
       {% if not deviations|selectattr('observed')|list %}
         <p class="hint" style="padding:16px 0 0">No days with observed opening/closing in this window yet.</p>
       {% endif %}
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>Incidents</h2>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Camera</th><th>Category</th><th>Severity</th><th>Status</th>
-          <th>First Seen</th><th>Last Seen</th>
-        </tr></thead>
-        <tbody>
-          {% for i in incidents %}
-          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
-            <td>{{ i.camera_name }}</td>
-            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
-            <td><span class="pill {{ i.severity|lower }}">{{ i.severity }} ({{ i.severity_score }})</span></td>
-            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
-            <td>{{ i.first_seen_str }}</td>
-            <td>{{ i.last_seen_str }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if not incidents %}<p class="empty">No incidents recorded for this clinic.</p>{% endif %}
       </div>
     </div>
 

@@ -17,6 +17,20 @@ Three categories, each 0-100, averaged into one overall Clinic Score:
   fully offline produces no observation rows, so without that second
   factor a total outage would be invisible to a pure observations ratio.
 
+Three supplementary metrics ride alongside the three above, on every
+clinic_scores() row, but are never folded into "overall" - they answer a
+different question (how much of what's happening is concerning, and how
+long it takes to clear) rather than contributing another 0-100 grade:
+
+- High/Medium concern %: of every check logged in the window, what share
+  came back High and what share came back Medium - out of the total check
+  count, not just the High/Medium ones, so a clinic checked rarely with one
+  bad reading reads as more concerning than one checked constantly with
+  that same one bad reading buried in hundreds of fine ones.
+- ETTR (estimated time to resolution): average minutes from an incident's
+  first sighting to its resolution, over incidents that resolved within the
+  window (analysis.incidents; see _ttr_minutes()).
+
 A category is ``None`` (not 0) when there is nothing to judge it from - a
 clinic never observed in the window has no timeliness verdict, not a scored
 failure. The overall score averages whichever categories have a value; a
@@ -143,8 +157,8 @@ def _ttr_minutes(
 ) -> Dict[str, float]:
     """
     Average minutes-to-resolution, per clinic, over incidents (see
-    analysis.incidents) resolved within the window - not yet wired into
-    clinic_scores()/the dashboard, built standalone for now.
+    analysis.incidents) resolved within the window - clinic_scores()'s
+    "ettr_minutes".
     """
     clauses = ["status = 'resolved'", "resolved_ts >= ?"]
     params: List[Any] = [since_epoch]
@@ -171,6 +185,50 @@ def _ttr_minutes(
     return {
         clinic: round(sum(minutes) / len(minutes), 1)
         for clinic, minutes in per_clinic.items()
+    }
+
+
+def _concern_pct_scores(
+    db: Database,
+    since_epoch: float,
+    until_epoch: float,
+    state: Optional[str],
+    cluster: Optional[str],
+) -> Dict[str, Dict[str, float]]:
+    """
+    Per clinic, {"high_pct", "medium_pct"}: share of the window's logged
+    checks that came back High and Medium severity, out of every check
+    logged (not just the concerning ones) - clinic_scores()'s "high_pct" and
+    "medium_pct".
+    """
+    clauses = ["ts_epoch >= ?", "ts_epoch < ?"]
+    params: List[Any] = [since_epoch, until_epoch]
+    if state:
+        clauses.append("state = ?")
+        params.append(state)
+    if cluster:
+        clauses.append("cluster = ?")
+        params.append(cluster)
+    hide, hide_params = ignored_clause()
+    if hide:
+        clauses.append(hide)
+        params.extend(hide_params)
+    rows = db.conn.execute(
+        "SELECT clinic_name, severity, COUNT(*) AS n FROM events "
+        f"WHERE {' AND '.join(clauses)} GROUP BY clinic_name, severity",
+        params,
+    ).fetchall()
+    totals: Dict[str, float] = defaultdict(float)
+    by_severity: Dict[str, Dict[str, float]] = defaultdict(dict)
+    for row in rows:
+        totals[row["clinic_name"]] += row["n"]
+        by_severity[row["clinic_name"]][row["severity"]] = row["n"]
+    return {
+        clinic: {
+            "high_pct": round(100 * by_severity[clinic].get("High", 0) / total, 1),
+            "medium_pct": round(100 * by_severity[clinic].get("Medium", 0) / total, 1),
+        }
+        for clinic, total in totals.items()
     }
 
 
@@ -273,7 +331,9 @@ def clinic_scores(
 ) -> Dict[str, Dict[str, Optional[float]]]:
     """
     One entry per clinic: {"timeliness", "incidents", "camera_availability",
-    "overall"} - each None when the window has nothing to judge it from.
+    "overall", "high_pct", "medium_pct", "ettr_minutes"} - each None when the
+    window has nothing to judge it from. The last three are supplementary
+    (see the module docstring) and never feed "overall".
     """
     end, length = WINDOWS.get(window, (0, 7))
     day_strs, since_epoch, until_epoch = _window(end, length)
@@ -285,17 +345,24 @@ def clinic_scores(
     availability = _camera_availability_scores(db, day_strs, state, cluster)
     roles = infer_roles(db.camera_descriptions())
     timeliness = _timeliness_scores(db, day_strs, clinics, roles)
+    concern = _concern_pct_scores(db, since_epoch, until_epoch, state, cluster)
+    ettr = _ttr_minutes(db, since_epoch, state, cluster)
 
     result: Dict[str, Dict[str, Optional[float]]] = {}
     for clinic in clinics:
-        cats = {
+        core = {
             "timeliness": timeliness.get(clinic),
             "incidents": incidents.get(clinic, 100.0 if clinic in availability else None),
             "camera_availability": availability.get(clinic),
         }
-        present = [v for v in cats.values() if v is not None]
-        cats["overall"] = round(sum(present) / len(present), 1) if present else None
-        result[clinic] = cats
+        present = [v for v in core.values() if v is not None]
+        result[clinic] = {
+            **core,
+            "overall": round(sum(present) / len(present), 1) if present else None,
+            "high_pct": concern.get(clinic, {}).get("high_pct"),
+            "medium_pct": concern.get(clinic, {}).get("medium_pct"),
+            "ettr_minutes": ettr.get(clinic),
+        }
     return result
 
 

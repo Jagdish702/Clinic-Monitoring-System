@@ -288,14 +288,57 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                     entry["observed"] = True
             deviations.append(entry)
 
-        # This clinic's own incidents (its slice of /incidents) and its own
-        # recent events (its slice of the main feed) - "all the data for
-        # this clinic in one place" means pulling both in here rather than
-        # sending someone to two more pages to piece it together themselves.
-        incidents = incidents_lib.list_incidents(database, clinic=clinic_name)
+        # This clinic's own recent events (its slice of the main feed) -
+        # "all the data for this clinic in one place" means pulling it in
+        # here rather than sending someone to another page to piece it
+        # together themselves.
         recent_events = _annotate(
             database.get_events(clinic_name=clinic_name, limit=20)
         )
+
+        # Every window's metrics for just this clinic, oldest window last -
+        # the "start with the Timelines x Metrics table" view. Scoped to the
+        # clinic's own state/cluster (not the whole fleet) so six windows'
+        # worth of scoring only ever costs one cluster's worth of rows, not
+        # the whole fleet's, six times over.
+        loc_state, loc_cluster = scoring.clinic_locations(database).get(
+            clinic_name, (None, None)
+        )
+        timeline_metrics = [
+            {
+                "window": w,
+                **(
+                    scoring.clinic_scores(
+                        database, window=w, state=loc_state, cluster=loc_cluster
+                    ).get(clinic_name)
+                    or {}
+                ),
+            }
+            for w in scoring.WINDOWS
+        ]
+
+        # Top areas of concern, and the High/Medium case lists, over the
+        # last 30 days - a fixed, recent-enough window rather than "ever",
+        # so a problem resolved months ago doesn't crowd out what actually
+        # needs attention now.
+        top_concerns = incidents_lib.top_concerns(database, clinic_name, window="30D")
+        high_cases = incidents_lib.list_incidents(
+            database, clinic=clinic_name, severity="High", window="30D"
+        )
+        medium_cases = incidents_lib.list_incidents(
+            database, clinic=clinic_name, severity="Medium", window="30D"
+        )
+
+        # Latest view: the most recent screenshot per camera, from the same
+        # recent-events pull above - already newest-first, so no new query.
+        latest_views = []
+        seen_cameras = set()
+        for ev in recent_events:
+            cam = ev.get("camera_name")
+            if not ev.get("screenshot_path") or cam in seen_cameras:
+                continue
+            seen_cameras.add(cam)
+            latest_views.append(ev)
 
         return render_template(
             "clinic.html",
@@ -305,8 +348,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             expected_open=config.EXPECTED_OPEN,
             expected_close=config.EXPECTED_CLOSE,
             deviations=deviations,
-            incidents=incidents,
             recent_events=recent_events,
+            timeline_metrics=timeline_metrics,
+            top_concerns=top_concerns,
+            high_cases=high_cases,
+            medium_cases=medium_cases,
+            latest_views=latest_views,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

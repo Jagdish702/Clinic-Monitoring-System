@@ -266,3 +266,40 @@ def get_incident(db: Any, incident_id: int) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     return _enrich(dict(row), time.time())
+
+
+def top_concerns(
+    db: Any, clinic: str, window: Optional[str] = None, limit: int = 5
+) -> List[Dict[str, Any]]:
+    """
+    A clinic's most frequent non-normal categories in a window, most
+    frequent first - "top areas of concern" for a clinic's own page. Counts
+    incidents, not raw events, so one long-running problem flagged on every
+    visit counts once, not once per check.
+    """
+    clauses = ["clinic_name = ?", "category != ?"]
+    params: List[Any] = [clinic, NORMAL]
+    if window:
+        from analysis.scoring import WINDOWS, _window
+        end, length = WINDOWS.get(window, (0, 30))
+        _, since_epoch, until_epoch = _window(end, length)
+        clauses.append("last_seen_ts >= ? AND last_seen_ts < ?")
+        params.extend([since_epoch, until_epoch])
+    where = " AND ".join(clauses)
+    rows = db.conn.execute(
+        "SELECT category, COUNT(*) AS n, MAX("
+        "CASE severity WHEN 'High' THEN 2 WHEN 'Medium' THEN 1 ELSE 0 END"
+        ") AS rank FROM incidents "
+        f"WHERE {where} GROUP BY category ORDER BY n DESC LIMIT ?",
+        (*params, limit),
+    ).fetchall()
+    rank_severity = {v: k for k, v in _SEVERITY_RANK.items()}
+    return [
+        {
+            "category": row["category"],
+            "category_group": category_group(row["category"]),
+            "count": row["n"],
+            "worst_severity": rank_severity.get(row["rank"], "Low"),
+        }
+        for row in rows
+    ]

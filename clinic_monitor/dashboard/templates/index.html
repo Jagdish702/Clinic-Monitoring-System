@@ -74,7 +74,12 @@
   .tree-row .left span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tree-row.state{border:1px solid transparent}
   .tree-row.state.active{background:var(--bg);border-color:var(--line);color:var(--text);font-weight:500}
-  .tree-row.state ~ .tree-row.state{border-top:1px solid var(--line)}
+  .tree-row-wrap{display:flex;align-items:stretch;gap:2px}
+  .tree-row-wrap > .tree-row{flex:1;min-width:0}
+  .tree-row-wrap.wrap-state ~ .tree-row-wrap.wrap-state{border-top:1px solid var(--line)}
+  .tree-open{display:flex;align-items:center;justify-content:center;width:22px;flex:0 0 auto;
+    border-radius:6px;color:var(--muted);font-size:12px}
+  .tree-open:hover{background:var(--bg);color:var(--brand)}
   .tree-row.cluster{padding-left:16px}
   .tree-row.cluster.active{color:var(--text);font-weight:500}
   .tree-row.clinic{padding-left:24px;font-size:12px}
@@ -291,22 +296,28 @@
           <a class="tree-row" href="?severity={{ severity }}&clinic=all&state=all&cluster=all">&larr; All states</a>
         {% endif %}
         {% for st in states %}
-          <a class="tree-row state {% if state == st.value %}active{% endif %}"
-             href="?severity={{ severity }}&clinic=all&state={{ st.value }}&cluster=all">
-            <span class="left">
-              <img class="tree-icon" alt=""
-                   src="{{ url_for('static', filename='icons/' ~ ('pin-active.svg' if state == st.value else 'pin.svg')) }}">
-              <span>{{ st.value }}</span>
-            </span>
-            <span>{{ st.count }}</span>
-          </a>
+          <div class="tree-row-wrap wrap-state">
+            <a class="tree-row state {% if state == st.value %}active{% endif %}"
+               href="?severity={{ severity }}&clinic=all&state={{ st.value }}&cluster=all">
+              <span class="left">
+                <img class="tree-icon" alt=""
+                     src="{{ url_for('static', filename='icons/' ~ ('pin-active.svg' if state == st.value else 'pin.svg')) }}">
+                <span>{{ st.value }}</span>
+              </span>
+              <span>{{ st.count }}</span>
+            </a>
+            <a class="tree-open" href="/state/{{ st.value | urlencode }}" title="Open the {{ st.value }} state page">&#8599;</a>
+          </div>
           {% if state == st.value %}
             {% for cl in clusters %}
-              <a class="tree-row cluster {% if cluster == cl.value %}active{% endif %}"
-                 href="?severity={{ severity }}&clinic=all&state={{ state }}&cluster={{ cl.value }}">
-                <span>{{ cl.value }} Cluster</span>
-                <span>{{ cl.count }}</span>
-              </a>
+              <div class="tree-row-wrap wrap-cluster">
+                <a class="tree-row cluster {% if cluster == cl.value %}active{% endif %}"
+                   href="?severity={{ severity }}&clinic=all&state={{ state }}&cluster={{ cl.value }}">
+                  <span>{{ cl.value }} Cluster</span>
+                  <span>{{ cl.count }}</span>
+                </a>
+                <a class="tree-open" href="/cluster/{{ cl.value | urlencode }}" title="Open the {{ cl.value }} cluster page">&#8599;</a>
+              </div>
               {% if cluster == cl.value %}
                 {% for cn in clinics %}
                   <a class="tree-row clinic {% if clinic == cn.value %}active{% endif %}"

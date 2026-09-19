@@ -366,6 +366,12 @@ def clinic_scores(
     return result
 
 
+_METRIC_KEYS = (
+    "timeliness", "incidents", "camera_availability", "overall",
+    "high_pct", "medium_pct", "ettr_minutes",
+)
+
+
 def group_metrics(
     scores: Dict[str, Dict[str, Optional[float]]],
 ) -> Dict[str, Optional[float]]:
@@ -381,7 +387,13 @@ def group_metrics(
     own page does.
     """
     if not scores:
-        return {}
+        # Every key present and None, not an empty dict - a brand new
+        # cluster/state with no scoreable clinics yet in this window still
+        # has to look like a row with nothing to show, not a row missing
+        # the columns entirely (which crashed the template the one time
+        # this happened for real: Bolangir's first day, before it had any
+        # data in most windows).
+        return {key: None for key in _METRIC_KEYS}
     keys = next(iter(scores.values())).keys()
     result: Dict[str, Optional[float]] = {}
     for key in keys:

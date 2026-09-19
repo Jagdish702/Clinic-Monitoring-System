@@ -12,13 +12,32 @@ one category per frame, so there is only ever one truly-open incident per
 camera to find. `category == "normal"` (Gemini's "Low, nothing on the
 checklist applies" case) is the resolving signal, the same way `status ==
 "online"` resolves an offline streak.
+
+A `normal` reading alone is not fully trusted, though - Gemini's own category
+has flip-flopped between a real problem and "normal" for the exact same
+unchanged frame before (CUREBAY JASIPUR's obstructed lens, fixed in
+ai/gemini_analyzer.py by cross-checking the description text). This module
+adds a second, independent check for every resolution: the resolving frame is
+compared against the incident's own first-seen frame with the same
+mean-pixel-difference measure already used to catch a frozen feed
+(analysis.camera_health). A "normal" reading on a frame that still looks like
+the original problem does not resolve the incident - it just counts as one
+unconfirmed normal reading, and the next reading gets the same chance.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+import cv2
+
+import config
+
+log = logging.getLogger(__name__)
 
 NORMAL = "normal"
 _SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2}
@@ -27,6 +46,20 @@ SEVERITY_SCORE = {"High": 90, "Medium": 60, "Low": 30}
 # How far back an open incident on the same clinic+camera is still
 # considered "the same problem still going on" rather than a new one.
 MATCH_WINDOW_SECONDS = 7 * 24 * 3600
+
+# Grayscale mean-absolute-difference (0-255) above which two screenshots
+# count as a genuinely different scene, not just lighting/compression noise.
+# Looser than camera_health.FROZEN_DIFF on purpose: that compares frames a
+# fraction of a second apart from the same visit, this compares frames that
+# may be days apart and shot under different lighting (day vs. IR night
+# mode) - a much lower bar would call every day/night switch "resolved".
+_RESOLVE_DIFF_THRESHOLD = 18.0
+
+# However many "normal, but the frame still looks unchanged" readings in a
+# row are tolerated before resolving anyway. Bounds the downside of a wrong
+# "still the same" call (from lighting, compression, etc.) to one delayed
+# check, rather than an incident that can never close.
+_MAX_UNCONFIRMED_NORMALS = 2
 
 # Fine category -> the broad bucket it's filtered by on the incident list.
 # One entry per value ai.gemini_analyzer's "category" field can return.
@@ -61,6 +94,34 @@ def category_group(category: str) -> str:
 
 def _worse(a: str, b: str) -> str:
     return a if _SEVERITY_RANK.get(a, 0) >= _SEVERITY_RANK.get(b, 0) else b
+
+
+def _images_differ(path_a: Optional[str], path_b: Optional[str]) -> Optional[bool]:
+    """
+    Whether two saved screenshots show a genuinely different scene.
+
+    Grayscale (lighting/IR-mode shifts move all three color channels
+    together, so color adds noise here without adding information) mean
+    absolute difference, the same measure analysis.camera_health already
+    uses to catch a frozen feed - just against a much looser threshold,
+    since these two frames can be days apart under different lighting
+    rather than a fraction of a second apart from the same visit.
+
+    None - not True or False - when either image is missing or unreadable,
+    so a caller can tell "looks unchanged" apart from "couldn't check" and
+    treat the latter as no reason to withhold resolution.
+    """
+    if not path_a or not path_b:
+        return None
+    img_a = cv2.imread(str(Path(config.SCREENSHOT_DIR) / path_a))
+    img_b = cv2.imread(str(Path(config.SCREENSHOT_DIR) / path_b))
+    if img_a is None or img_b is None:
+        return None
+    gray_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY)
+    gray_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY)
+    if gray_a.shape != gray_b.shape:
+        gray_b = cv2.resize(gray_b, (gray_a.shape[1], gray_a.shape[0]))
+    return bool(cv2.absdiff(gray_a, gray_b).mean() >= _RESOLVE_DIFF_THRESHOLD)
 
 
 def _push(db: Any, incident_id: int) -> None:
@@ -109,23 +170,53 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
     screenshot = payload.get("screenshot_path")
 
     if category == NORMAL:
-        resolved_id = db.conn.execute(
-            "SELECT id FROM incidents WHERE clinic_name = ? AND camera_name = ? "
+        existing = db.conn.execute(
+            "SELECT id, first_screenshot_path, unconfirmed_normal_count "
+            "FROM incidents WHERE clinic_name = ? AND camera_name = ? "
             "AND status = 'open'",
             (clinic, camera),
         ).fetchone()
+        if not existing:
+            return None
+
+        # A "normal" reading is only trusted once the frame itself has
+        # moved on from the original problem - see the module docstring.
+        # differs is None (couldn't compare - no image on file, or one
+        # unreadable) is treated as "no reason to doubt it", same as True.
+        differs = _images_differ(existing["first_screenshot_path"], screenshot)
+        confirmed = (
+            differs is not False
+            # +1: this reading, if rejected, is about to become the next
+            # unconfirmed count - so _MAX_UNCONFIRMED_NORMALS=2 means the
+            # 2nd unchanged-looking "normal" reading resolves anyway, not
+            # the 3rd.
+            or existing["unconfirmed_normal_count"] + 1 >= _MAX_UNCONFIRMED_NORMALS
+        )
+
         with db.conn as conn:
-            # The resolving check's own screenshot becomes the incident's
-            # "closing" image - last_screenshot_path already means "most
-            # recent evidence", and once resolved that's exactly what it is.
-            conn.execute(
-                "UPDATE incidents SET status = 'resolved', resolved_ts = ?, "
-                "last_screenshot_path = COALESCE(?, last_screenshot_path) "
-                "WHERE clinic_name = ? AND camera_name = ? AND status = 'open'",
-                (now, screenshot, clinic, camera),
-            )
-        if resolved_id:
-            _push(db, int(resolved_id["id"]))
+            if confirmed:
+                # The resolving check's own screenshot becomes the incident's
+                # "closing" image - last_screenshot_path already means "most
+                # recent evidence", and once resolved that's exactly what it is.
+                conn.execute(
+                    "UPDATE incidents SET status = 'resolved', resolved_ts = ?, "
+                    "last_screenshot_path = COALESCE(?, last_screenshot_path) "
+                    "WHERE id = ?",
+                    (now, screenshot, existing["id"]),
+                )
+            else:
+                log.info(
+                    "%s/%s: 'normal' reading rejected - frame still matches "
+                    "the original problem (unconfirmed count now %d)",
+                    clinic, camera, existing["unconfirmed_normal_count"] + 1,
+                )
+                conn.execute(
+                    "UPDATE incidents SET unconfirmed_normal_count = "
+                    "unconfirmed_normal_count + 1 WHERE id = ?",
+                    (existing["id"],),
+                )
+        if confirmed:
+            _push(db, int(existing["id"]))
         return None
 
     severity = payload.get("severity", "Low")
@@ -143,7 +234,8 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
             conn.execute(
                 "UPDATE incidents SET last_seen_ts = ?, severity = ?, "
                 "description = ?, "
-                "last_screenshot_path = COALESCE(?, last_screenshot_path) "
+                "last_screenshot_path = COALESCE(?, last_screenshot_path), "
+                "unconfirmed_normal_count = 0 "
                 "WHERE id = ?",
                 (
                     now, _worse(existing["severity"], severity), description,

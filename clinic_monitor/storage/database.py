@@ -156,9 +156,10 @@ CREATE TABLE IF NOT EXISTS incidents (
     resolved_ts   REAL,
     state         TEXT,
     cluster       TEXT
-    -- first_screenshot_path and last_screenshot_path are added via
-    -- _migrate(), not here - see the comment above _migrate() for why a
-    -- new incidents column can't be declared in this static CREATE TABLE.
+    -- first_screenshot_path, last_screenshot_path and
+    -- unconfirmed_normal_count are added via _migrate(), not here - see the
+    -- comment above _migrate() for why a new incidents column can't be
+    -- declared in this static CREATE TABLE.
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_open
     ON incidents (clinic_name, camera_name, status, first_seen_ts);
@@ -288,6 +289,7 @@ class Database:
             "incidents": {
                 "first_screenshot_path": "TEXT",
                 "last_screenshot_path": "TEXT",
+                "unconfirmed_normal_count": "INTEGER DEFAULT 0",
             },
         }
         for table, columns in wanted.items():
@@ -414,7 +416,7 @@ class Database:
         fields = (
             "category", "severity", "status", "description", "last_seen_ts",
             "resolved_ts", "state", "cluster", "first_screenshot_path",
-            "last_screenshot_path",
+            "last_screenshot_path", "unconfirmed_normal_count",
         )
         existing = self.conn.execute(
             "SELECT id FROM incidents WHERE clinic_name = ? AND camera_name = ? "

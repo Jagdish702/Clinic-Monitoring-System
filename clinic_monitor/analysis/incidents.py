@@ -361,16 +361,33 @@ def get_incident(db: Any, incident_id: int) -> Optional[Dict[str, Any]]:
 
 
 def top_concerns(
-    db: Any, clinic: str, window: Optional[str] = None, limit: int = 5
+    db: Any,
+    clinic: Optional[str] = None,
+    state: Optional[str] = None,
+    cluster: Optional[str] = None,
+    window: Optional[str] = None,
+    limit: int = 5,
 ) -> List[Dict[str, Any]]:
     """
-    A clinic's most frequent non-normal categories in a window, most
-    frequent first - "top areas of concern" for a clinic's own page. Counts
-    incidents, not raw events, so one long-running problem flagged on every
-    visit counts once, not once per check.
+    The most frequent non-normal categories in a window, most frequent
+    first - "top areas of concern" for a clinic's, cluster's or state's own
+    page (whichever of clinic/state/cluster is given narrows the count -
+    all three together is a clinic within a cluster within a state, same
+    as list_incidents()). Counts incidents, not raw events, so one
+    long-running problem flagged on every visit counts once, not once per
+    check.
     """
-    clauses = ["clinic_name = ?", "category != ?"]
-    params: List[Any] = [clinic, NORMAL]
+    clauses = ["category != ?"]
+    params: List[Any] = [NORMAL]
+    if clinic:
+        clauses.append("clinic_name = ?")
+        params.append(clinic)
+    if state:
+        clauses.append("state = ?")
+        params.append(state)
+    if cluster:
+        clauses.append("cluster = ?")
+        params.append(cluster)
     if window:
         from analysis.scoring import WINDOWS, _window
         end, length = WINDOWS.get(window, (0, 30))

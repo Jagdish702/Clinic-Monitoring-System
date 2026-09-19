@@ -119,6 +119,9 @@
   details.score-cluster > summary{padding-left:32px;font-weight:500;font-size:13px}
   details.score-cluster[open] > summary{border-bottom:1px solid var(--line)}
   details.score-cluster table{box-shadow:none;border-radius:0}
+  .drill-link{font:500 11px var(--font-ui);color:var(--brand);text-decoration:underline;
+    text-decoration-color:transparent;margin-right:auto;margin-left:10px}
+  .drill-link:hover{text-decoration-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -223,6 +226,7 @@
       <details class="score-state" {% if loop.first %}open{% endif %}>
         <summary>
           <span>{{ s.name }}</span>
+          <a class="drill-link" href="/state/{{ s.name | urlencode }}" onclick="event.stopPropagation()">Open state page →</a>
           {{ score_span(s.average) }}
         </summary>
         <div class="score-clusters">
@@ -230,6 +234,7 @@
           <details class="score-cluster" {% if loop.first %}open{% endif %}>
             <summary>
               <span>{{ c.name }} Cluster</span>
+              <a class="drill-link" href="/cluster/{{ c.name | urlencode }}" onclick="event.stopPropagation()">Open cluster page →</a>
               {{ score_span(c.average) }}
             </summary>
             <div class="table-wrap">

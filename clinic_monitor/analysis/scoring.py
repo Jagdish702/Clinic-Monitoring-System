@@ -366,6 +366,30 @@ def clinic_scores(
     return result
 
 
+def group_metrics(
+    scores: Dict[str, Dict[str, Optional[float]]],
+) -> Dict[str, Optional[float]]:
+    """
+    Every metric averaged across a set of already-computed per-clinic
+    clinic_scores() rows - one cluster's or state's own row for the same
+    Timelines x Metrics view a single clinic's page shows, without
+    recomputing anything: each clinic already carries its own numbers,
+    this just averages column-wise instead of picking one clinic's.
+
+    Generalizes group_average() (which only ever averaged "overall") to
+    every key so a group page can show the same metric columns a clinic's
+    own page does.
+    """
+    if not scores:
+        return {}
+    keys = next(iter(scores.values())).keys()
+    result: Dict[str, Optional[float]] = {}
+    for key in keys:
+        values = [v[key] for v in scores.values() if v.get(key) is not None]
+        result[key] = round(sum(values) / len(values), 1) if values else None
+    return result
+
+
 def clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
     """
     clinic_name -> (state, cluster), the most recently observed tag - used

@@ -239,7 +239,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 ).strftime("%Y-%m-%d %H:%M")
         return events
 
-    @app.route("/clinic/<clinic_name>")
+    # path: converter, not the default string one - a real device-list
+    # artifact tracked as a "clinic_name" ("iDS-7104HQHI-M1/S(FW1789907)")
+    # contains a literal "/", which the default converter refuses to match
+    # at all (a 404, not a wrong match) - found via the new cluster/state
+    # pages linking straight to it.
+    @app.route("/clinic/<path:clinic_name>")
     def clinic_page(clinic_name: str):
         today = datetime.now().date()
 
@@ -363,6 +368,113 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             latest_views=latest_views,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
+
+    def _group_page(level: str, name: str, state: Optional[str], cluster: Optional[str]):
+        """
+        Shared by /state/<name> and /cluster/<name> - the same sections a
+        clinic's own page has, aggregated across every clinic in scope
+        instead of read straight off one clinic's rows. Exactly one of
+        state/cluster is set by the caller; passing just one to every
+        filter below (clinic_scores(), list_incidents(), get_events(),
+        group_counts()) already narrows correctly without needing to look
+        up which state a cluster belongs to.
+        """
+        today = datetime.now().date()
+
+        clinic_names = [
+            r["value"] for r in database.group_counts("clinic_name", state=state, cluster=cluster)
+        ]
+
+        # Every window's metrics, averaged across every clinic in scope -
+        # the same Timelines x Metrics view a clinic's own page has, one
+        # row per clinic rolled up into one row for the group.
+        timeline_metrics = [
+            {
+                "window": w,
+                **scoring.group_metrics(
+                    scoring.clinic_scores(database, window=w, state=state, cluster=cluster)
+                ),
+            }
+            for w in scoring.WINDOWS
+        ]
+
+        top_concerns = incidents_lib.top_concerns(
+            database, state=state, cluster=cluster, window="30D"
+        )
+        high_cases = incidents_lib.list_incidents(
+            database, state=state, cluster=cluster, severity="High", window="30D"
+        )
+        medium_cases = incidents_lib.list_incidents(
+            database, state=state, cluster=cluster, severity="Medium", window="30D"
+        )
+
+        # A generous pull (not just the 20 shown below) so "one screenshot
+        # per clinic" has enough recent history to find one for as many
+        # clinics as possible, capped so the section stays a quick visual
+        # scan rather than one thumbnail per clinic in a 100-clinic state.
+        recent_events = _annotate(
+            database.get_events(state=state, cluster=cluster, limit=200)
+        )
+        latest_views = []
+        seen_clinics = set()
+        for ev in recent_events:
+            cn = ev.get("clinic_name")
+            if not ev.get("screenshot_path") or cn in seen_clinics:
+                continue
+            seen_clinics.add(cn)
+            latest_views.append(ev)
+            if len(latest_views) >= 12:
+                break
+
+        # Clinic-wise status today - the group-level equivalent of a
+        # clinic's own 14-day Opening/Closing table. One clinic's history
+        # over time doesn't generalize to many clinics at once, but "how is
+        # every clinic doing today" does.
+        day_rows = [
+            r for r in reporting.daily_summary(today.isoformat(), db=database)
+            if r["clinic"] in clinic_names
+        ]
+        clinics_open_today = sum(1 for r in day_rows if r["status"] == "opened")
+        clinics_offline_today = sum(1 for r in day_rows if r["status"] == "offline")
+
+        # Cluster page: which clinics it contains. State page: which
+        # clusters it contains - both just a count-and-link list, so
+        # drilling from a state into one cluster (and from there into one
+        # clinic) never needs the sidebar's filter tree.
+        children = (
+            database.group_counts("clinic_name", state=state, cluster=cluster)
+            if level == "Cluster"
+            else database.group_counts("cluster", state=state)
+        )
+
+        return render_template(
+            "group.html",
+            level=level,
+            name=name,
+            children=children,
+            clinics_total=len(clinic_names),
+            clinics_open_today=clinics_open_today,
+            clinics_offline_today=clinics_offline_today,
+            timeline_metrics=timeline_metrics,
+            top_concerns=top_concerns,
+            high_cases=high_cases,
+            medium_cases=medium_cases,
+            latest_views=latest_views,
+            day_rows=day_rows,
+            recent_events=recent_events[:20],
+            refresh=config.DASHBOARD_REFRESH_SEC,
+        )
+
+    # path: converter, not the default string one - a real deployed cluster
+    # name ("Balasore/Bhadrak") contains a literal "/", which the default
+    # converter refuses to match at all (a 404, not a wrong match).
+    @app.route("/state/<path:state_name>")
+    def state_page(state_name: str):
+        return _group_page("State", state_name, state_name, None)
+
+    @app.route("/cluster/<path:cluster_name>")
+    def cluster_page(cluster_name: str):
+        return _group_page("Cluster", cluster_name, None, cluster_name)
 
     @app.route("/incidents")
     def incidents_page():

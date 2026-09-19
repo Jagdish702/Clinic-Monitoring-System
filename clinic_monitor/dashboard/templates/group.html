@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — {{ name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --med-bg:#fff3d7;  --med-fg:#d29300;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);}
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+  .page-title{font:600 20px var(--font-ui);margin:0}
+  .page-sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+
+  .cards{display:flex;gap:16px;flex-wrap:wrap}
+  .stat-card{
+    flex:1;min-width:200px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:16px 20px;
+  }
+  .stat-card .label{margin:0;color:var(--muted);font-size:12px}
+  .stat-card .value-row{display:flex;align-items:baseline;gap:4px;margin-top:6px}
+  .stat-card .value{font:600 26px var(--font-ui)}
+  .stat-card .of{color:var(--muted);font-size:14px}
+  .stat-card .sub{margin-top:6px;font-size:12px;color:var(--muted)}
+
+  .section{display:flex;flex-direction:column;gap:12px}
+  .section h2{font:600 15px var(--font-ui);margin:0}
+  .section .hint{color:var(--muted);font-size:12px;margin:-8px 0 0}
+
+  table{width:100%;border-collapse:collapse;background:var(--white);border-radius:16px;
+    overflow:hidden;box-shadow:var(--shadow-card);}
+  th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .table-wrap{overflow-x:auto}
+  .empty{color:var(--muted);font-size:13px;padding:16px}
+  tr.row-link:hover{background:var(--bg);cursor:pointer}
+
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;
+    font:500 11px var(--font-ui);}
+  .pill.high{background:var(--high-bg);color:var(--high-fg)}
+  .pill.medium{background:var(--med-bg);color:var(--med-fg)}
+  .pill.low{background:var(--low-bg);color:var(--low-fg)}
+  .status{display:inline-flex;padding:3px 10px;border-radius:100px;font:500 11px var(--font-ui);}
+  .status.open,.status.offline{background:var(--high-bg);color:var(--high-fg)}
+  .status.resolved,.status.opened{background:var(--low-bg);color:var(--low-fg)}
+  .status.closed{background:var(--bg);color:var(--muted)}
+
+  td.problem{background:var(--high-bg);color:var(--high-fg);font-weight:600}
+  td.watch{background:var(--med-bg);color:var(--med-fg);font-weight:600}
+  .views-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .view-card{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    overflow:hidden}
+  .view-card img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg)}
+  .view-card .meta{padding:8px 12px;font-size:12px;color:var(--muted)}
+  .view-card .meta b{color:var(--text);font-weight:600}
+  .concern-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .concern-card{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
+    padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+  .concern-card .count{font:600 22px var(--font-ui)}
+  .concern-card .cat{font-size:12px;color:var(--muted)}
+  .chip-row{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;
+    background:var(--white);box-shadow:var(--shadow-card);font-size:12px;color:var(--text)}
+  .chip:hover{color:var(--brand)}
+  .chip .n{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row" href="/">Dashboard</a>
+      <a class="nav-row" href="/scores">Scores</a>
+      <a class="nav-row" href="/incidents">Incidents</a>
+    </div>
+    <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
+  </aside>
+
+  <main class="main">
+    <div>
+      <p class="page-title">{{ name }}{{ ' Cluster' if level == 'Cluster' else '' }}</p>
+      <p class="page-sub">{{ level }} overview — every metric below is averaged or rolled up across every clinic in it.</p>
+    </div>
+
+    <div class="section">
+      <h2>{{ 'Clusters in this state' if level == 'State' else 'Clinics in this cluster' }}</h2>
+      <div class="chip-row">
+        {% for c in children %}
+        <a class="chip" href="{{ '/cluster/' if level == 'State' else '/clinic/' }}{{ c.value | urlencode }}">
+          {{ c.value }}<span class="n">{{ c.count }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% if not children %}<p class="empty">Nothing recorded for this {{ level|lower }} yet.</p>{% endif %}
+    </div>
+
+    <div class="section">
+      <h2>Timelines × Metrics</h2>
+      <p class="hint">Averaged across every clinic in this {{ level|lower }}. Problem cells highlighted: Timeliness/Camera Availability below threshold, High/Medium % above, ETTR over 4 hours.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Window</th>
+          <th class="num">Timeliness</th>
+          <th class="num">Camera Availability</th>
+          <th class="num">High %</th>
+          <th class="num">Medium %</th>
+          <th class="num">ETTR (min)</th>
+          <th class="num">Overall</th>
+        </tr></thead>
+        <tbody>
+          {% for m in timeline_metrics %}
+          <tr>
+            <td>{{ m.window }}</td>
+            <td class="num {{ 'problem' if m.timeliness is not none and m.timeliness < 70 }}">
+              {{ '%.0f'|format(m.timeliness) if m.timeliness is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.camera_availability is not none and m.camera_availability < 80 }}">
+              {{ '%.0f'|format(m.camera_availability) if m.camera_availability is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.high_pct and m.high_pct > 10 }}">
+              {{ '%.0f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
+            <td class="num {{ 'watch' if m.medium_pct and m.medium_pct > 25 }}">
+              {{ '%.0f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
+            <td class="num {{ 'problem' if m.ettr_minutes and m.ettr_minutes > 240 }}">
+              {{ '%.0f'|format(m.ettr_minutes) if m.ettr_minutes is not none else '—' }}</td>
+            <td class="num">{{ '%.0f'|format(m.overall) if m.overall is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="stat-card">
+        <p class="label">Clinics</p>
+        <div class="value-row"><span class="value">{{ clinics_total }}</span></div>
+      </div>
+      <div class="stat-card">
+        <p class="label">Opened today</p>
+        <div class="value-row"><span class="value">{{ clinics_open_today }}</span><span class="of">/{{ clinics_total }}</span></div>
+      </div>
+      <div class="stat-card">
+        <p class="label">Offline today</p>
+        <div class="value-row"><span class="value">{{ clinics_offline_today }}</span><span class="of">/{{ clinics_total }}</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Top areas of concern — last 30 days</h2>
+      <div class="concern-grid">
+        {% for c in top_concerns %}
+        <div class="concern-card">
+          <span class="pill {{ c.worst_severity|lower }}">{{ c.worst_severity }}</span>
+          <span class="count">{{ c.count }}</span>
+          <span class="cat">{{ c.category_group }} · {{ c.category }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% if not top_concerns %}<p class="empty">No non-normal categories recorded in the last 30 days.</p>{% endif %}
+    </div>
+
+    <div class="section">
+      <h2>Latest view</h2>
+      <p class="hint">One clinic per card — its own page has every camera.</p>
+      <div class="views-grid">
+        {% for v in latest_views %}
+        <a class="view-card" href="/clinic/{{ v.clinic_name | urlencode }}">
+          <img src="/screenshots/{{ v.screenshot_path }}" alt="{{ v.clinic_name }} latest view">
+          <div class="meta"><b>{{ v.clinic_name }}</b><br>{{ v.camera_name }} · {{ v.timestamp_display or v.timestamp }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% if not latest_views %}<p class="empty">No screenshot on file yet for this {{ level|lower }}.</p>{% endif %}
+    </div>
+
+    <div class="section">
+      <h2>High concern cases — last 30 days</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Clinic</th><th>Camera</th><th>Category</th><th>Status</th>
+          <th>First Seen</th><th>Last Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for i in high_cases %}
+          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
+            <td>{{ i.clinic_name }}</td>
+            <td>{{ i.camera_name }}</td>
+            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
+            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
+            <td>{{ i.first_seen_str }}</td>
+            <td>{{ i.last_seen_str }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not high_cases %}<p class="empty">No High-severity cases in the last 30 days.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Medium concern cases — last 30 days</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Clinic</th><th>Camera</th><th>Category</th><th>Status</th>
+          <th>First Seen</th><th>Last Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for i in medium_cases %}
+          <tr class="row-link" onclick="window.location='/incidents/{{ i.id }}'">
+            <td>{{ i.clinic_name }}</td>
+            <td>{{ i.camera_name }}</td>
+            <td>{{ i.category_group }}<br><span class="hint" style="margin:0">{{ i.category }}</span></td>
+            <td><span class="status {{ i.status }}">{{ 'Open' if i.status == 'open' else 'Resolved' }}</span></td>
+            <td>{{ i.first_seen_str }}</td>
+            <td>{{ i.last_seen_str }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not medium_cases %}<p class="empty">No Medium-severity cases in the last 30 days.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Clinic-wise status — today</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Clinic</th><th>Opening</th><th>Closing</th><th>Status</th>
+        </tr></thead>
+        <tbody>
+          {% for r in day_rows %}
+          <tr class="row-link" onclick="window.location='/clinic/{{ r.clinic | urlencode }}'">
+            <td>{{ r.clinic }}</td>
+            <td>{{ r.opening_time or '—' }}</td>
+            <td>{{ r.closing_time or '—' }}</td>
+            <td><span class="status {{ r.status }}">{{ r.status|capitalize }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not day_rows %}<p class="empty">No clinics observed today yet.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Recent events</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Clinic</th><th>Camera</th><th>Severity</th><th>Description</th><th>When</th>
+        </tr></thead>
+        <tbody>
+          {% for ev in recent_events %}
+          <tr class="row-link" onclick="window.location='/clinic/{{ ev.clinic_name | urlencode }}'">
+            <td>{{ ev.clinic_name }}</td>
+            <td>{{ ev.camera_name }}</td>
+            <td><span class="pill {{ ev.severity|lower }}">{{ ev.severity }}</span></td>
+            <td>{{ ev.description }}</td>
+            <td>{{ ev.timestamp_display or ev.timestamp }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not recent_events %}<p class="empty">No events recorded for this {{ level|lower }} yet.</p>{% endif %}
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

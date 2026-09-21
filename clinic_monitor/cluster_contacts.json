@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Cluster -> COM escalation email, shown on the dashboard's Offline",
+    "Clinics page so whoever's looking at a cluster's outages immediately",
+    "sees who to contact. Mirrors each VM's own CM_EMAIL_TO (see .env on",
+    "that cluster's VM) - update here too whenever a VM's recipient changes,",
+    "since this file is the only copy the central dashboard can read."
+  ],
+
+  "Puri": "sourav.panda@curebay.com",
+  "Rourkela": "amit.sahoo@curebay.com",
+  "Bhubaneswar": "sourav.panda@curebay.com",
+  "Nayagarh": "rajib.mohanty@curebay.com",
+  "Berhampur": "sunil.panda@curebay.com",
+  "Balasore/Bhadrak": "sridharmohanty037@gmail.com, ajay.barik@curebay.com",
+  "Cuttack": "rizaul.khan@curebay.com",
+  "Keonjhar": "pradyumna.tripathy@curebay.com",
+  "Jaleswar": "debashis.behera@curebay.com",
+  "Bolangir": "chinmaya.sahoo@curebay.com",
+  "Raipur": "sandeep.tripathi@curebay.com"
+}

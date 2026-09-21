@@ -680,6 +680,18 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             for r in rows
         ]
 
+        # State/cluster per clinic, and each cluster's escalation contact, so
+        # the page can group State -> Cluster -> Clinic the same way Reports
+        # does and show who to contact right on the cluster header.
+        locations = scoring.clinic_locations(database)
+        for row in outages:
+            state, cluster = locations.get(row["clinic_name"], (None, None))
+            row["state"], row["cluster"] = state, cluster
+        for row in cameras:
+            state, cluster = locations.get(row["clinic_name"], (None, None))
+            row["state"], row["cluster"] = state, cluster
+        contacts = config.load_cluster_contacts()
+
         # A day where every clinic failed has no observations at all, so the
         # day list has to come from the status log as well or that day would
         # be unselectable - exactly the day someone wants to look at.
@@ -698,6 +710,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 "outages": outages,
                 "clinics": summary,
                 "cameras": cameras,
+                "contacts": contacts,
                 "days_with_data": days,
             }
         )

@@ -440,3 +440,17 @@ def load_clinics() -> List[ClinicConfig]:
 def ensure_directories() -> None:
     for path in (SCREENSHOT_DIR, DB_PATH.parent, LOG_DIR):
         path.mkdir(parents=True, exist_ok=True)
+
+
+CLUSTER_CONTACTS_FILE = BASE_DIR / "cluster_contacts.json"
+
+
+def load_cluster_contacts() -> dict:
+    """cluster name -> COM escalation email, for the dashboard's Offline
+    Clinics page. See cluster_contacts.json - it's the only central copy of
+    what each VM's own CM_EMAIL_TO is set to."""
+    if not CLUSTER_CONTACTS_FILE.exists():
+        return {}
+    with CLUSTER_CONTACTS_FILE.open("r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+    return {k: v for k, v in raw.items() if not k.startswith("_")}

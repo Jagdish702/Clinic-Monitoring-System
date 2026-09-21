@@ -207,8 +207,11 @@
   .report-group-state{font-size:15px;font-weight:700;color:var(--brand);
                        margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
   .report-group-cluster{font-size:12px;font-weight:600;color:var(--muted);
-                         text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px}
+                         text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;
+                         display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
   .report-group-cluster:first-of-type{margin-top:0}
+  .cluster-contact{font-weight:400;text-transform:none;letter-spacing:normal;
+                    color:var(--brand);font-size:11px}
   .report h1{font-size:20px;margin:0 0 6px}
   .report h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;
              border-bottom:1px solid var(--line);color:var(--brand)}
@@ -609,55 +612,85 @@ async function loadOffline(day){
   offDay.innerHTML = days.map(x =>
     `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
 
-  let html = "";
+  const contacts = d.contacts || {};
 
-  if (d.outages.length){
-    html += `<h3 style="margin:4px 0 10px">Clinics that could not be reached</h3>
-      <div class="table-wrap"><table><thead><tr>
-      <th>Clinic</th><th>Offline from</th><th>Back at</th><th>Duration</th><th>Checks</th>
-      </tr></thead><tbody>` +
-      d.outages.map(o => {
-        const why = [o.reason ? "reason: " + o.reason : "",
-                     o.last_seen_working ? "last seen working " + hhmm(o.last_seen_working) : ""]
-                    .filter(Boolean).join(" · ");
-        return `<tr title="${esc(why)}">
-        <td><strong>${esc(o.clinic_name)}</strong></td>
-        <td>${hhmm(o.from)}</td>
-        <td>${o.ongoing ? '<span style="color:var(--high-fg)">still offline</span>' : hhmm(o.to)}</td>
-        <td>${o.minutes < 1 ? "under one lap" : duration(o.minutes)}</td>
-        <td>${o.checks}</td>
-      </tr>`;}).join("") + `</tbody></table></div>
-      <p class="note">Times come from patrol checks, so each end is accurate to
-      about one lap. A clinic was last seen working before the "offline from"
-      time shown - hover a row for that time and the reason.</p>`;
-  } else {
-    html += `<p class="note">Every clinic responded on every check for ${esc(d.day)}.</p>`;
+  // State -> Cluster -> {outages, dead, flaky}, the same hierarchy Reports
+  // uses, so a cluster's problems sit right under its own escalation contact
+  // instead of one flat fleet-wide list.
+  const buckets = new Map();
+  function bucketFor(row){
+    const st = row.state || "Unassigned", cl = row.cluster || "Unassigned";
+    if (!buckets.has(st)) buckets.set(st, new Map());
+    const byCluster = buckets.get(st);
+    if (!byCluster.has(cl)) byCluster.set(cl, {outages: [], dead: [], flaky: []});
+    return byCluster.get(cl);
+  }
+  d.outages.forEach(o => bucketFor(o).outages.push(o));
+  d.cameras.forEach(c => bucketFor(c)[c.all_day ? "dead" : "flaky"].push(c));
+
+  if (!buckets.size){
+    offBody.innerHTML = `<p class="note">Every clinic responded on every check for ${esc(d.day)}.</p>`;
+    return;
   }
 
-  const dead = d.cameras.filter(c => c.all_day);
-  const flaky = d.cameras.filter(c => !c.all_day);
+  const outageTable = rows => `
+    <div class="table-wrap"><table><thead><tr>
+    <th>Clinic</th><th>Offline from</th><th>Back at</th><th>Duration</th><th>Checks</th>
+    </tr></thead><tbody>` +
+    rows.map(o => {
+      const why = [o.reason ? "reason: " + o.reason : "",
+                   o.last_seen_working ? "last seen working " + hhmm(o.last_seen_working) : ""]
+                  .filter(Boolean).join(" · ");
+      return `<tr title="${esc(why)}">
+      <td><strong>${esc(o.clinic_name)}</strong></td>
+      <td>${hhmm(o.from)}</td>
+      <td>${o.ongoing ? '<span style="color:var(--high-fg)">still offline</span>' : hhmm(o.to)}</td>
+      <td>${o.minutes < 1 ? "under one lap" : duration(o.minutes)}</td>
+      <td>${o.checks}</td>
+    </tr>`;}).join("") + `</tbody></table></div>`;
 
-  if (dead.length){
+  const deadTable = rows => {
     const byClinic = {};
-    dead.forEach(c => { (byClinic[c.clinic_name] = byClinic[c.clinic_name] || []).push(c.camera_name); });
-    html += `<h3 style="margin:22px 0 10px">Cameras dead all day</h3>
-      <div class="table-wrap"><table><thead><tr><th>Clinic</th><th>Cameras</th><th>Checks</th></tr></thead><tbody>` +
+    rows.forEach(c => { (byClinic[c.clinic_name] = byClinic[c.clinic_name] || []).push(c.camera_name); });
+    return `<div class="table-wrap"><table><thead><tr><th>Clinic</th><th>Cameras</th><th>Checks</th></tr></thead><tbody>` +
       Object.entries(byClinic).map(([cl, cams]) => {
-        const checks = dead.find(c => c.clinic_name === cl).checks;
+        const checks = rows.find(c => c.clinic_name === cl).checks;
         return `<tr><td>${esc(cl)}</td><td>${cams.map(esc).join(", ")}</td><td>${checks}</td></tr>`;
-      }).join("") + `</tbody></table></div>
-      <p class="note">These channels reported no signal on every check. The clinic
-      itself was reachable — the cameras were not.</p>`;
-  }
+      }).join("") + `</tbody></table></div>`;
+  };
 
-  if (flaky.length){
-    html += `<h3 style="margin:22px 0 10px">Cameras that dropped out some of the time</h3>
-      <div class="table-wrap"><table><thead><tr>
-      <th>Clinic</th><th>Camera</th><th>Bad checks</th></tr></thead><tbody>` +
-      flaky.map(c => `<tr><td>${esc(c.clinic_name)}</td><td>${esc(c.camera_name)}</td>
-        <td>${c.bad} of ${c.checks}</td></tr>`).join("") +
-      `</tbody></table></div>`;
+  const flakyTable = rows => `
+    <div class="table-wrap"><table><thead><tr>
+    <th>Clinic</th><th>Camera</th><th>Bad checks</th></tr></thead><tbody>` +
+    rows.map(c => `<tr><td>${esc(c.clinic_name)}</td><td>${esc(c.camera_name)}</td>
+      <td>${c.bad} of ${c.checks}</td></tr>`).join("") +
+    `</tbody></table></div>`;
+
+  let html = "";
+  for (const [st, byCluster] of buckets){
+    html += `<div class="report-group"><div class="report-group-state">${esc(st)}</div>`;
+    for (const [cl, groups] of byCluster){
+      const contact = contacts[cl];
+      html += `<div class="report-group-cluster"><span>${esc(cl)}</span>` +
+        (contact ? `<span class="cluster-contact">COM: ${esc(contact)}</span>` : "") +
+        `</div>`;
+      if (groups.outages.length){
+        html += `<h3>Could not be reached</h3>` + outageTable(groups.outages);
+      }
+      if (groups.dead.length){
+        html += `<h3>Cameras dead all day</h3>` + deadTable(groups.dead);
+      }
+      if (groups.flaky.length){
+        html += `<h3>Cameras that dropped out some of the time</h3>` + flakyTable(groups.flaky);
+      }
+    }
+    html += `</div>`;
   }
+  html += `<p class="note">Times come from patrol checks, so each end is accurate to
+    about one lap. A clinic was last seen working before the "offline from"
+    time shown - hover a row for that time and the reason. Cameras that
+    reported no signal on every check had a reachable device but a dead
+    camera channel.</p>`;
 
   offBody.innerHTML = html;
 }

@@ -761,7 +761,14 @@ def generate(clinic: str, day: str, db: Optional[Database] = None) -> Optional[P
 
 def _clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
     """
-    clinic_name -> (state, cluster), the most recently observed tag.
+    clinic_name -> (state, cluster), the most recently tagged row across
+    both observations and clinic_status.
+
+    Both tables, not just observations: a clinic offline since before its
+    first successful camera check has zero observations rows, but
+    clinic_status still tags state/cluster on every patrol lap regardless
+    of whether the check itself succeeded - observations alone left exactly
+    these permanently-unreachable clinics unassigned forever.
 
     Most-recent, not most-common: a clinic patrolled since before
     CM_STATE_NAME/CM_CLUSTER_NAME existed has thousands of old untagged
@@ -774,7 +781,11 @@ def _clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[s
     back here would be circular.
     """
     rows = db.conn.execute(
-        "SELECT clinic_name, state, cluster FROM observations "
+        "SELECT clinic_name, state, cluster, ts_epoch FROM observations "
+        "WHERE state IS NOT NULL AND state != '' "
+        "AND cluster IS NOT NULL AND cluster != '' "
+        "UNION ALL "
+        "SELECT clinic_name, state, cluster, ts_epoch FROM clinic_status "
         "WHERE state IS NOT NULL AND state != '' "
         "AND cluster IS NOT NULL AND cluster != '' "
         "ORDER BY clinic_name, ts_epoch DESC"

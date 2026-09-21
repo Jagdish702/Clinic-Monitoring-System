@@ -404,9 +404,18 @@ def group_metrics(
 
 def clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
     """
-    clinic_name -> (state, cluster), the most recently observed tag - used
-    to group an already-computed, ungrouped clinic_scores() result by
-    cluster/state without recomputing scores per group.
+    clinic_name -> (state, cluster), the most recently tagged row across
+    both observations and clinic_status - used to group an already-computed,
+    ungrouped clinic_scores() result by cluster/state without recomputing
+    scores per group.
+
+    Both tables, not just observations: a clinic offline since before its
+    first successful camera check has zero observations rows, but
+    clinic_status still tags state/cluster on every patrol lap regardless
+    of whether the check itself succeeded - observations alone left exactly
+    these permanently-unreachable clinics "Unassigned" forever, which is
+    precisely when the Offline Clinics page most needs to know their
+    cluster.
 
     Most-recent, not most-common: a clinic patrolled since before
     CM_STATE_NAME/CM_CLUSTER_NAME existed has thousands of old untagged
@@ -415,7 +424,11 @@ def clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[st
     already carries the right state/cluster.
     """
     rows = db.conn.execute(
-        "SELECT clinic_name, state, cluster FROM observations "
+        "SELECT clinic_name, state, cluster, ts_epoch FROM observations "
+        "WHERE state IS NOT NULL AND state != '' "
+        "AND cluster IS NOT NULL AND cluster != '' "
+        "UNION ALL "
+        "SELECT clinic_name, state, cluster, ts_epoch FROM clinic_status "
         "WHERE state IS NOT NULL AND state != '' "
         "AND cluster IS NOT NULL AND cluster != '' "
         "ORDER BY clinic_name, ts_epoch DESC"

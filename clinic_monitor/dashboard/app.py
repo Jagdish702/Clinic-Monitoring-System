@@ -212,6 +212,30 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             _roles["at"] = time.time()
         return _roles["data"]
 
+    # A clinic/cluster/state page scores every clinic in scope across six
+    # windows, fresh, on every single request - the roles/hours caches
+    # above only share work within one request, not across them. On a
+    # state page (all of a state's clinics, potentially dozens) that's
+    # several seconds of real query and render work every time, even for
+    # the same page loaded twice in a row (a refresh, the sidebar arrow,
+    # someone else opening the same cluster). Caching the rendered page
+    # itself for a short while - long enough to make repeat visits
+    # instant, short enough that a monitoring dashboard already built
+    # around "roughly one patrol lap" accuracy never shows meaningfully
+    # stale data - covers all of that at once instead of chasing every
+    # remaining query one at a time.
+    _PAGE_CACHE_TTL = 45
+    _page_cache: dict = {}
+
+    def _cached_page(key: str, build):
+        now = time.time()
+        hit = _page_cache.get(key)
+        if hit and now - hit[0] < _PAGE_CACHE_TTL:
+            return hit[1]
+        html = build()
+        _page_cache[key] = (now, html)
+        return html
+
     def _clinic_location(clinic_name: str):
         """
         One clinic's (state, cluster), the most recent tag from either
@@ -262,13 +286,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 ).strftime("%Y-%m-%d %H:%M")
         return events
 
-    # path: converter, not the default string one - a real device-list
-    # artifact tracked as a "clinic_name" ("iDS-7104HQHI-M1/S(FW1789907)")
-    # contains a literal "/", which the default converter refuses to match
-    # at all (a 404, not a wrong match) - found via the new cluster/state
-    # pages linking straight to it.
-    @app.route("/clinic/<path:clinic_name>")
-    def clinic_page(clinic_name: str):
+    def _build_clinic_page(clinic_name: str) -> str:
         today = datetime.now().date()
 
         # Camera Availability, "X/Y": Y is the best available proxy for "how
@@ -408,6 +426,17 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 
+    # path: converter, not the default string one - a real device-list
+    # artifact tracked as a "clinic_name" ("iDS-7104HQHI-M1/S(FW1789907)")
+    # contains a literal "/", which the default converter refuses to match
+    # at all (a 404, not a wrong match) - found via the new cluster/state
+    # pages linking straight to it.
+    @app.route("/clinic/<path:clinic_name>")
+    def clinic_page(clinic_name: str):
+        return _cached_page(
+            f"clinic:{clinic_name}", lambda: _build_clinic_page(clinic_name)
+        )
+
     def _group_page(level: str, name: str, state: Optional[str], cluster: Optional[str]):
         """
         Shared by /state/<name> and /cluster/<name> - the same sections a
@@ -521,11 +550,17 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     # converter refuses to match at all (a 404, not a wrong match).
     @app.route("/state/<path:state_name>")
     def state_page(state_name: str):
-        return _group_page("State", state_name, state_name, None)
+        return _cached_page(
+            f"state:{state_name}",
+            lambda: _group_page("State", state_name, state_name, None),
+        )
 
     @app.route("/cluster/<path:cluster_name>")
     def cluster_page(cluster_name: str):
-        return _group_page("Cluster", cluster_name, None, cluster_name)
+        return _cached_page(
+            f"cluster:{cluster_name}",
+            lambda: _group_page("Cluster", cluster_name, None, cluster_name),
+        )
 
     @app.route("/incidents")
     def incidents_page():

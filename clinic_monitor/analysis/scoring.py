@@ -284,25 +284,83 @@ def _camera_availability_scores(
     return scores
 
 
+def _operating_hours_by_day(
+    db: Database,
+    day_strs: Sequence[str],
+    roles: Dict[Tuple[str, str], str],
+    state: Optional[str] = None,
+    cluster: Optional[str] = None,
+) -> Dict[Tuple[str, str], dict]:
+    """
+    operating_hours() for every (clinic, day) pair with any observation in
+    day_strs - one query for the whole span instead of a separate
+    get_observations() call per (clinic, day). That per-day, per-clinic
+    round trip was the single biggest cost of scoring a window (up to
+    len(clinics) * 30 queries for "30D" alone).
+
+    Callers scoring several WINDOWS entries in one request (a clinic/
+    cluster/state page's Timelines x Metrics table) should build this once
+    over the 30-day span - every other window's days are a subset of it -
+    and pass it into _timeliness_scores() as ``hours_by_day``, instead of
+    each window recomputing the same overlapping days from scratch: "today"
+    alone would otherwise be computed fresh for Today, 3D, 7D, 14D and 30D.
+    """
+    placeholders = ", ".join("?" for _ in day_strs)
+    clauses = [f"day IN ({placeholders})"]
+    params: List[Any] = list(day_strs)
+    if state:
+        clauses.append("state = ?")
+        params.append(state)
+    if cluster:
+        clauses.append("cluster = ?")
+        params.append(cluster)
+    hide, hide_params = ignored_clause()
+    if hide:
+        clauses.append(hide)
+        params.extend(hide_params)
+    obs_rows = db.conn.execute(
+        f"SELECT * FROM observations WHERE {' AND '.join(clauses)} "
+        "ORDER BY ts_epoch ASC",
+        params,
+    ).fetchall()
+    by_clinic_day: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    for row in obs_rows:
+        by_clinic_day[(row["clinic_name"], row["day"])].append(dict(row))
+
+    hours_by_day: Dict[Tuple[str, str], dict] = {}
+    for (clinic, day), rows in by_clinic_day.items():
+        indoor = indoor_cameras(roles, clinic)
+        hours_by_day[(clinic, day)] = operating_hours(rows, indoor)
+    return hours_by_day
+
+
 def _timeliness_scores(
     db: Database,
     day_strs: Sequence[str],
     clinics: Sequence[str],
     roles: Dict[Tuple[str, str], str],
+    state: Optional[str] = None,
+    cluster: Optional[str] = None,
+    hours_by_day: Optional[Dict[Tuple[str, str], dict]] = None,
 ) -> Dict[str, float]:
     """
     Average, over days the clinic was actually observed, of how close its
     opening and closing were to schedule - full credit inside the open/close
     tolerance windows, one point off per minute beyond them.
+
+    ``hours_by_day`` mirrors ``roles`` on clinic_scores() - a caller scoring
+    several windows in one request passes in a cache built once (see
+    _operating_hours_by_day()) instead of every window recomputing it.
     """
+    if hours_by_day is None:
+        hours_by_day = _operating_hours_by_day(db, day_strs, roles, state, cluster)
+
     per_clinic: Dict[str, List[float]] = defaultdict(list)
     for clinic in clinics:
-        indoor = indoor_cameras(roles, clinic)
         for day in day_strs:
-            rows = db.get_observations(day, clinic)
-            if not rows:
+            hours = hours_by_day.get((clinic, day))
+            if not hours:
                 continue
-            hours = operating_hours(rows, indoor)
             day_when = datetime.strptime(day, "%Y-%m-%d")
             deviations = []
             if hours["opened"]:
@@ -328,12 +386,27 @@ def clinic_scores(
     window: str = "7D",
     state: Optional[str] = None,
     cluster: Optional[str] = None,
+    roles: Optional[Dict[Tuple[str, str], str]] = None,
+    hours_by_day: Optional[Dict[Tuple[str, str], dict]] = None,
 ) -> Dict[str, Dict[str, Optional[float]]]:
     """
     One entry per clinic: {"timeliness", "incidents", "camera_availability",
     "overall", "high_pct", "medium_pct", "ettr_minutes"} - each None when the
     window has nothing to judge it from. The last three are supplementary
     (see the module docstring) and never feed "overall".
+
+    ``roles`` lets a caller that scores the same clinics across several
+    windows in one request (a clinic/cluster/state page's Timelines x
+    Metrics table) infer camera roles once and reuse it, instead of every
+    window re-running infer_roles(db.camera_descriptions()) - a fleet-wide
+    scan of the events table - for a value that does not depend on the
+    window at all. ``hours_by_day`` is the same idea for
+    _operating_hours_by_day(): every WINDOWS entry's days are a subset of
+    the 30-day one, so a caller can build it once over 30 days and every
+    window looks up its own smaller day range from the same dict instead of
+    recomputing today's operating hours once per window that includes it.
+    Both left unset, still computed fresh here so every other caller's
+    behavior is unchanged.
     """
     end, length = WINDOWS.get(window, (0, 7))
     day_strs, since_epoch, until_epoch = _window(end, length)
@@ -343,8 +416,11 @@ def clinic_scores(
 
     incidents = _incident_scores(db, since_epoch, until_epoch, state, cluster)
     availability = _camera_availability_scores(db, day_strs, state, cluster)
-    roles = infer_roles(db.camera_descriptions())
-    timeliness = _timeliness_scores(db, day_strs, clinics, roles)
+    if roles is None:
+        roles = infer_roles(db.camera_descriptions())
+    timeliness = _timeliness_scores(
+        db, day_strs, clinics, roles, state, cluster, hours_by_day
+    )
     concern = _concern_pct_scores(db, since_epoch, until_epoch, state, cluster)
     ettr = _ttr_minutes(db, since_epoch, state, cluster)
 

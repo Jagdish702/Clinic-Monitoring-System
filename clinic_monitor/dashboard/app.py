@@ -212,6 +212,29 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             _roles["at"] = time.time()
         return _roles["data"]
 
+    def _clinic_location(clinic_name: str):
+        """
+        One clinic's (state, cluster), the most recent tag from either
+        observations or clinic_status. A scoped version of
+        scoring.clinic_locations() for callers (clinic_page()) that only
+        need one clinic's answer - that function computes the whole fleet's
+        map and sorts it, which is wasted work when only one entry is ever
+        read from the result.
+        """
+        row = database.conn.execute(
+            "SELECT state, cluster FROM ("
+            "  SELECT state, cluster, ts_epoch FROM observations "
+            "  WHERE clinic_name = ? AND state IS NOT NULL AND state != '' "
+            "  AND cluster IS NOT NULL AND cluster != '' "
+            "  UNION ALL "
+            "  SELECT state, cluster, ts_epoch FROM clinic_status "
+            "  WHERE clinic_name = ? AND state IS NOT NULL AND state != '' "
+            "  AND cluster IS NOT NULL AND cluster != ''"
+            ") ORDER BY ts_epoch DESC LIMIT 1",
+            (clinic_name, clinic_name),
+        ).fetchone()
+        return (row["state"], row["cluster"]) if row else (None, None)
+
     def _annotate(events):
         """
         Tag each event with its camera's role, and drop the open/closed verdict
@@ -313,15 +336,31 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # clinic's own state/cluster (not the whole fleet) so six windows'
         # worth of scoring only ever costs one cluster's worth of rows, not
         # the whole fleet's, six times over.
-        loc_state, loc_cluster = scoring.clinic_locations(database).get(
-            clinic_name, (None, None)
+        loc_state, loc_cluster = _clinic_location(clinic_name)
+        # _camera_roles() is the same 120s-cached lookup _annotate() already
+        # uses. Without passing it through, each of the six clinic_scores()
+        # calls below would fall back to its own fresh
+        # infer_roles(db.camera_descriptions()) - a fleet-wide scan of the
+        # events table, run six times over for a value that does not depend
+        # on the window at all. This (plus the same fix in _group_page) is
+        # what made opening a clinic/cluster/state page slow.
+        roles = _camera_roles()
+        # Same idea, one step further: every WINDOWS entry's days are a
+        # subset of the 30-day one, so today's opening/closing time would
+        # otherwise be recomputed from scratch once per window that
+        # includes it (Today, 3D, 7D, 14D and 30D all do) - build it once
+        # here instead.
+        days_30, _, _ = scoring._window(0, 30)
+        hours_by_day = scoring._operating_hours_by_day(
+            database, days_30, roles, state=loc_state, cluster=loc_cluster
         )
         timeline_metrics = [
             {
                 "window": w,
                 **(
                     scoring.clinic_scores(
-                        database, window=w, state=loc_state, cluster=loc_cluster
+                        database, window=w, state=loc_state, cluster=loc_cluster,
+                        roles=roles, hours_by_day=hours_by_day,
                     ).get(clinic_name)
                     or {}
                 ),
@@ -387,12 +426,23 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
         # Every window's metrics, averaged across every clinic in scope -
         # the same Timelines x Metrics view a clinic's own page has, one
-        # row per clinic rolled up into one row for the group.
+        # row per clinic rolled up into one row for the group. Roles and
+        # opening/closing hours passed through once (see clinic_page()'s
+        # comments on the same pattern) so six windows cost one camera-role
+        # scan and one operating-hours pass, not six of each.
+        roles = _camera_roles()
+        days_30, _, _ = scoring._window(0, 30)
+        hours_by_day = scoring._operating_hours_by_day(
+            database, days_30, roles, state=state, cluster=cluster
+        )
         timeline_metrics = [
             {
                 "window": w,
                 **scoring.group_metrics(
-                    scoring.clinic_scores(database, window=w, state=state, cluster=cluster)
+                    scoring.clinic_scores(
+                        database, window=w, state=state, cluster=cluster,
+                        roles=roles, hours_by_day=hours_by_day,
+                    )
                 ),
             }
             for w in scoring.WINDOWS

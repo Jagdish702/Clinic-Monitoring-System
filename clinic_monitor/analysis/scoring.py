@@ -523,28 +523,43 @@ def group_average(
     return round(sum(values) / len(values), 1) if values else None
 
 
+_HIGH_RECENCY_BONUS_MIN = 5
+_MEDIUM_RECENCY_PENALTY_MIN = 30
+_FILLER_FLOOR = 2000
+
+
 def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
     """
-    The clinics most worth looking at right now - not a window average, the
-    current situation: offline beats a bad recent event, which beats a low
-    24-hour score.
+    The clinics most worth looking at right now - ranked primarily by how
+    recently the problem started, not a fixed severity tier where a clinic
+    offline for a week always outranks every event and a High-severity
+    alert from a minute ago always loses to it. Every candidate's
+    rank_score is its age in minutes (lower = more urgent = shown first);
+    severity only nudges that age as a tiebreak - a High event counts as
+    5 minutes fresher than it really is, a Medium 30 minutes staler - so a
+    genuinely fresh High can and does outrank a stale offline clinic, but
+    two similarly-aged problems still sort by severity.
+
+    "Low today score" fillers (used only when there aren't enough real
+    offline/event signals to fill ``limit``) stay in their own tier below
+    every real signal, however old - a vague low score is never as
+    actionable as an actual ongoing problem.
     """
     day = datetime.now().date().isoformat()
-    # A correlated subquery here ("WHERE ts_epoch = (SELECT MAX(...) WHERE
-    # clinic_name = ...)") re-scans the whole table once per row without an
-    # index built for it - effectively O(n^2), measured at 17s against a
-    # clinic_status table with ~12k rows. SQLite's own documented behavior
-    # for a bare column alongside MAX() in one GROUP BY - it comes from the
-    # same row as the max - gives the identical result in one pass instead.
-    latest_status = db.conn.execute(
-        "SELECT clinic_name, status, timestamp, reason, cluster, state, "
-        "MAX(ts_epoch) AS ts_epoch FROM clinic_status GROUP BY clinic_name"
-    ).fetchall()
+    now = time.time()
+
+    # Real elapsed time since each outage began (offline_periods() tracks
+    # actual start/end within the day), not just "was the last check
+    # offline" - the latter can't distinguish a clinic that just dropped
+    # from one that's been down all day, which is exactly the distinction
+    # this ranking needs.
     offline_now = {
-        r["clinic_name"]: r for r in latest_status if r["status"] == "offline"
+        o["clinic_name"]: o
+        for o in db.offline_periods(day)
+        if o.get("ongoing")
     }
 
-    since = time.time() - 2 * 3600
+    since = now - 2 * 3600
     hide, hide_params = ignored_clause()
     recent = db.conn.execute(
         "SELECT clinic_name, camera_name, severity, description, ts_epoch "
@@ -564,8 +579,9 @@ def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     seen = set()
     for clinic, row in offline_now.items():
+        age_min = (now - row["from_epoch"]) / 60
         entries.append({
-            "clinic_name": clinic, "rank_score": 0.0, "reason": "Device offline",
+            "clinic_name": clinic, "rank_score": age_min, "reason": "Device offline",
             "detail": row["reason"] or "unreachable", "state": row["state"],
             "cluster": row["cluster"],
         })
@@ -573,9 +589,14 @@ def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
     for clinic, row in worst_recent.items():
         if clinic in seen:
             continue
+        age_min = (now - row["ts_epoch"]) / 60
+        bonus = (
+            -_HIGH_RECENCY_BONUS_MIN if row["severity"] == "High"
+            else _MEDIUM_RECENCY_PENALTY_MIN
+        )
         entries.append({
             "clinic_name": clinic,
-            "rank_score": 10.0 if row["severity"] == "High" else 40.0,
+            "rank_score": age_min + bonus,
             "reason": f"{row['severity']} alert",
             "detail": row["description"],
             "state": None, "cluster": None,
@@ -594,7 +615,7 @@ def most_problematic_now(db: Database, limit: int = 3) -> List[Dict[str, Any]]:
             if clinic in seen:
                 continue
             entries.append({
-                "clinic_name": clinic, "rank_score": 50.0 + overall / 10,
+                "clinic_name": clinic, "rank_score": _FILLER_FLOOR + (100 - overall),
                 "reason": "Low today score", "detail": f"score {overall}",
                 "state": None, "cluster": None,
             })

@@ -544,7 +544,7 @@ class Database:
         is carried too - the real failure happened somewhere in between.
         """
         rows = self.conn.execute(
-            "SELECT clinic_name, ts_epoch, timestamp, status, reason "
+            "SELECT clinic_name, ts_epoch, timestamp, status, reason, state, cluster "
             "FROM clinic_status WHERE day = ? ORDER BY clinic_name, ts_epoch",
             (day,),
         ).fetchall()
@@ -568,6 +568,8 @@ class Database:
                                 last_online["timestamp"] if last_online else None
                             ),
                             "reason": entry["reason"],
+                            "state": entry["state"],
+                            "cluster": entry["cluster"],
                             "checks": 0,
                         }
                     open_period["checks"] += 1

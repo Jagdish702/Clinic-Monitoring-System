@@ -43,10 +43,6 @@ NORMAL = "normal"
 _SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2}
 SEVERITY_SCORE = {"High": 90, "Medium": 60, "Low": 30}
 
-# How far back an open incident on the same clinic+camera is still
-# considered "the same problem still going on" rather than a new one.
-MATCH_WINDOW_SECONDS = 7 * 24 * 3600
-
 # Grayscale mean-absolute-difference (0-255) above which two screenshots
 # count as a genuinely different scene, not just lighting/compression noise.
 # Looser than camera_health.FROZEN_DIFF on purpose: that compares frames a
@@ -222,11 +218,22 @@ def classify_and_link(db: Any, payload: Dict[str, Any]) -> Optional[int]:
     severity = payload.get("severity", "Low")
     description = payload.get("description") or ""
 
+    # No age cutoff on top of status = 'open': that condition alone already
+    # guarantees this can never match a long-resolved incident (which is
+    # what MATCH_WINDOW_SECONDS was meant to guard against) - a resolved
+    # incident is excluded regardless of how recent it is. Adding
+    # "AND first_seen_ts >= now - 7 days" on top of that instead excluded
+    # incidents that were STILL OPEN but had simply been open longer than a
+    # week (their first_seen_ts never moves once set, however many times
+    # last_seen_ts is refreshed) - the very case "one truly-open incident
+    # per camera" is supposed to cover. A camera broken continuously for
+    # over a week would silently fork into a second, then a third, open
+    # incident every seven days for as long as it stayed broken.
     existing = db.conn.execute(
         "SELECT id, severity FROM incidents "
         "WHERE clinic_name = ? AND camera_name = ? AND status = 'open' "
-        "AND first_seen_ts >= ? ORDER BY last_seen_ts DESC LIMIT 1",
-        (clinic, camera, now - MATCH_WINDOW_SECONDS),
+        "ORDER BY last_seen_ts DESC LIMIT 1",
+        (clinic, camera),
     ).fetchone()
 
     if existing:

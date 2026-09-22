@@ -479,11 +479,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # Clinic-wise status today - the group-level equivalent of a
         # clinic's own 14-day Opening/Closing table. One clinic's history
         # over time doesn't generalize to many clinics at once, but "how is
-        # every clinic doing today" does.
-        day_rows = [
-            r for r in reporting.daily_summary(today.isoformat(), db=database)
-            if r["clinic"] in clinic_names
-        ]
+        # every clinic doing today" does. Scoped and roles reused (see the
+        # comments above) instead of summarizing the whole fleet and
+        # filtering down to this group's clinics afterward.
+        day_rows = reporting.daily_summary(
+            today.isoformat(), db=database, state=state, cluster=cluster, roles=roles
+        )
         clinics_open_today = sum(1 for r in day_rows if r["status"] == "opened")
         clinics_offline_today = sum(1 for r in day_rows if r["status"] == "offline")
 

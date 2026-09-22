@@ -35,14 +35,14 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import median
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
 from analysis.camera_health import FROZEN_DIFF, HealthStatus  # noqa: E402
 from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
-from storage.database import Database  # noqa: E402
+from storage.database import Database, ignored_clause  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -796,7 +796,13 @@ def _clinic_locations(db: Database) -> Dict[str, Tuple[Optional[str], Optional[s
     return picked
 
 
-def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str]]:
+def daily_summary(
+    day: str,
+    db: Optional[Database] = None,
+    state: Optional[str] = None,
+    cluster: Optional[str] = None,
+    roles: Optional[Dict[Tuple[str, str], str]] = None,
+) -> List[Dict[str, str]]:
     """
     One row per clinic for a day: when it opened, when it closed, and which of
     the three states it was in.
@@ -810,9 +816,20 @@ def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str
     "offline" is emphatically not "closed". A clinic whose NVR dropped off the
     network looks identical to a shut one through this system, and calling it
     closed would blame the staff for a broken router.
+
+    ``state``/``cluster`` narrow which clinics are summarized - left unset
+    (the CSV/XLSX exports' usage), every clinic in the fleet is summarized,
+    matching the original behavior. A cluster/state page that only ever
+    keeps the rows for its own clinics should pass these through instead of
+    filtering the full-fleet result afterward, so the query itself - and
+    the per-clinic camera-role/operating-hours work below - only ever
+    touches the rows actually needed. ``roles`` likewise lets such a caller
+    reuse a camera-role inference it already has instead of this function
+    repeating that fleet-wide events-table scan itself.
     """
     db = db or Database()
-    roles = infer_roles(db.camera_descriptions())
+    if roles is None:
+        roles = infer_roles(db.camera_descriptions())
     try:
         outages = db.offline_periods(day)
     except Exception as exc:
@@ -825,26 +842,68 @@ def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str
         status = {}
 
     locations = _clinic_locations(db)
+
+    def _in_scope(clinic: str) -> bool:
+        if not (state or cluster):
+            return True
+        clinic_state, clinic_cluster = locations.get(clinic, (None, None))
+        if state and clinic_state != state:
+            return False
+        if cluster and clinic_cluster != cluster:
+            return False
+        return True
+
     # Known state/cluster groups sort first, alphabetically; a clinic with
     # neither (predates CM_STATE_NAME/CM_CLUSTER_NAME, or never set them)
     # sorts after all of them rather than before, so it doesn't jump the
     # queue ahead of every real group.
     names = sorted(
-        set(db.observed_clinics(day)) | set(status),
+        (c for c in set(db.observed_clinics(day)) | set(status) if _in_scope(c)),
         key=lambda c: (locations.get(c, (None, None))[0] or "￿",
                        locations.get(c, (None, None))[1] or "￿", c),
     )
+
+    # One query for the whole day's observations instead of one
+    # get_observations() call per clinic - that per-clinic round trip was
+    # most of the cost of building this table (up to len(names) queries,
+    # every one of them for the whole fleet even on a cluster/state page
+    # that only keeps a fraction of the rows afterward).
+    clauses = ["day = ?"]
+    params: List[Any] = [day]
+    if state:
+        clauses.append("state = ?")
+        params.append(state)
+    if cluster:
+        clauses.append("cluster = ?")
+        params.append(cluster)
+    hide, hide_params = ignored_clause()
+    if hide:
+        clauses.append(hide)
+        params.extend(hide_params)
+    obs_rows = db.conn.execute(
+        f"SELECT * FROM observations WHERE {' AND '.join(clauses)} "
+        "ORDER BY ts_epoch ASC",
+        params,
+    ).fetchall()
+    by_clinic: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in obs_rows:
+        by_clinic[row["clinic_name"]].append(dict(row))
+
+    outages_by_clinic: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for o in outages:
+        outages_by_clinic[o["clinic_name"]].append(o)
+
     summary: List[Dict[str, str]] = []
     for clinic in names:
-        clinic_state, cluster = locations.get(clinic, (None, None))
-        rows = db.get_observations(day, clinic)
+        clinic_state, clinic_cluster = locations.get(clinic, (None, None))
+        rows = by_clinic.get(clinic, [])
         hours = operating_hours(rows, indoor_cameras(roles, clinic)) if rows else None
         opened = hours["opened"] if hours else None
         closed = hours["closed"] if hours else None
 
         checks = status.get(clinic, {}).get("checks", 0)
         failures = status.get(clinic, {}).get("failures", 0)
-        mine = [o for o in outages if o["clinic_name"] == clinic]
+        mine = outages_by_clinic.get(clinic, [])
         down = sum(o.get("minutes") or 0 for o in mine)
 
         if opened:
@@ -860,7 +919,7 @@ def daily_summary(day: str, db: Optional[Database] = None) -> List[Dict[str, str
         summary.append({
             "clinic": clinic,
             "state_name": clinic_state or "",
-            "cluster": cluster or "",
+            "cluster": clinic_cluster or "",
             "date": day,
             "opening_time": _hhmm(opened) if opened else "",
             "closing_time": _hhmm(closed) if closed else "",

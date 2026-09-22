@@ -19,14 +19,37 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PY="$HERE/.venv/bin/python"
 LOG="$HERE/logs/periodic_restart.log"
 
 # Cron's root crontab sets no $USER, and hardcoding a name breaks silently the
 # day the service account changes - see the identical derivation, and the
 # reason for it, in watchdog.sh.
 SVC_USER="${CM_SERVICE_USER:-$(stat -c %U "$HERE")}"
+# root's cron also has none of the emulator environment.
+export CM_ADB_PATH="${CM_ADB_PATH:-/home/$SVC_USER/android-sdk/platform-tools/adb}"
 
 log() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"; }
+
+# Kill the emulator first: control/emulator.py's ensure_running() reuses
+# whatever is already up rather than booting a second copy (a real feature -
+# it makes an ordinary patrol restart, e.g. after a crash, fast instead of
+# paying a cold boot every time) - so "systemctl restart clinic-patrol" alone
+# reattaches to the very same long-lived emulator this script exists to age
+# out, defeating the whole point. Mirrors watchdog.sh's identical fix for the
+# identical reason.
+"$PY" -c "
+import sys; sys.path.insert(0, '$HERE')
+from control import emulator
+s = emulator.running_serial()
+if s:
+    emulator._adb('-s', s, 'emu', 'kill')
+    print('killed', s)
+" >>"$LOG" 2>&1 || true
+
+sleep 10
+pkill -f "emulator.*-avd" 2>/dev/null || true
+sleep 5
 
 if systemctl is-enabled --quiet "clinic-patrol@$SVC_USER" 2>/dev/null; then
     systemctl restart "clinic-patrol@$SVC_USER"

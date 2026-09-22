@@ -19,7 +19,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY="$HERE/.venv/bin/python"
+ROOT="$(dirname "$HERE")"
+PY="$ROOT/.venv/bin/python"
 LOG="$HERE/logs/periodic_restart.log"
 
 # Cron's root crontab sets no $USER, and hardcoding a name breaks silently the

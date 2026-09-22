@@ -84,6 +84,10 @@
   .problem-card .reason.medium{background:var(--med-bg);color:var(--med-fg)}
   .problem-card .reason.low24h{background:var(--bg);color:var(--muted)}
   .problem-card .detail{font-size:12px;color:var(--muted)}
+  .problem-card .desc{font-size:12px;color:var(--text);line-height:1.4}
+  .problem-card .thumb{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;
+    border-radius:10px;background:var(--bg)}
+  .problem-card .thumb-empty{width:100%;aspect-ratio:16/9;border-radius:10px;background:var(--bg)}
   .problem-empty{color:var(--muted);font-size:13px;padding:8px 0}
 
   table{width:100%;border-collapse:collapse;background:var(--white);border-radius:16px;
@@ -192,10 +196,17 @@
       {% if items %}
         <div class="problem-row">
           {% for i in items %}
+            {% set shot = i.last_screenshot_path or i.first_screenshot_path %}
             <a class="problem-card" href="/clinic/{{ i.clinic_name | urlencode }}">
+              {% if shot %}
+                <img class="thumb" src="/screenshots/{{ shot }}" alt="{{ i.clinic_name }} evidence">
+              {% else %}
+                <div class="thumb-empty"></div>
+              {% endif %}
               <span class="name">{{ i.clinic_name }}</span>
               <span class="reason {{ i.severity|lower }}">{{ i.severity }} alert</span>
               <span class="detail">{{ i.category_group }} · {{ i.category }}</span>
+              <span class="desc">{{ i.description }}</span>
               <span class="detail">ticket opened {{ (i.duration_seconds / 60)|round|int }}m ago</span>
             </a>
           {% endfor %}

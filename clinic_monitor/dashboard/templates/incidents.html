@@ -78,6 +78,11 @@
   .status.open{background:var(--high-bg);color:var(--high-fg)}
   .status.resolved{background:var(--bg);color:var(--muted)}
   .muted{color:var(--muted)}
+  .thumb{width:64px;height:40px;object-fit:cover;border-radius:6px;display:block;
+    margin-bottom:4px;background:var(--bg)}
+  .thumb-empty{width:64px;height:40px;border-radius:6px;background:var(--bg);margin-bottom:4px}
+  .desc-snippet{font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -182,6 +187,7 @@
     <div class="table-wrap">
     <table>
       <thead><tr>
+        <th>Evidence</th>
         <th>{{ sort_link('alphabetical', 'Clinic') }}</th>
         <th>Camera</th>
         <th>Category</th>
@@ -193,7 +199,16 @@
       </tr></thead>
       <tbody>
         {% for r in rows %}
+        {% set shot = r.last_screenshot_path or r.first_screenshot_path %}
         <tr class="row-link" onclick="window.location='/incidents/{{ r.id }}'">
+          <td>
+            {% if shot %}
+              <img class="thumb" src="/screenshots/{{ shot }}" alt="{{ r.clinic_name }} evidence">
+            {% else %}
+              <div class="thumb-empty"></div>
+            {% endif %}
+            <div class="desc-snippet" title="{{ r.description }}">{{ r.description or '' }}</div>
+          </td>
           <td>{{ r.clinic_name }}</td>
           <td>{{ r.camera_name }}</td>
           <td>{{ r.category_group }}<br><span class="muted">{{ r.category }}</span></td>

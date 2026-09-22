@@ -418,13 +418,14 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # Top areas of concern, and the High/Medium case lists, over the
         # last 30 days - a fixed, recent-enough window rather than "ever",
         # so a problem resolved months ago doesn't crowd out what actually
-        # needs attention now.
+        # needs attention now. Unresolved only - a case someone already
+        # closed out isn't something to look at right now.
         top_concerns = incidents_lib.top_concerns(database, clinic_name, window="30D")
         high_cases = incidents_lib.list_incidents(
-            database, clinic=clinic_name, severity="High", window="30D"
+            database, clinic=clinic_name, severity="High", status="open", window="30D"
         )
         medium_cases = incidents_lib.list_incidents(
-            database, clinic=clinic_name, severity="Medium", window="30D"
+            database, clinic=clinic_name, severity="Medium", status="open", window="30D"
         )
 
         # Latest view: the most recent screenshot per camera, from the same
@@ -516,11 +517,14 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         top_concerns = incidents_lib.top_concerns(
             database, state=state, cluster=cluster, window="30D"
         )
+        # Unresolved only - see clinic_page()'s comment on the same choice.
         high_cases = incidents_lib.list_incidents(
-            database, state=state, cluster=cluster, severity="High", window="30D"
+            database, state=state, cluster=cluster, severity="High",
+            status="open", window="30D",
         )
         medium_cases = incidents_lib.list_incidents(
-            database, state=state, cluster=cluster, severity="Medium", window="30D"
+            database, state=state, cluster=cluster, severity="Medium",
+            status="open", window="30D",
         )
 
         # A generous pull (not just the 20 shown below) so "one screenshot
@@ -669,7 +673,10 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         window = request.args.get("window", "all")
         if window != "all" and window not in scoring.WINDOWS:
             window = "all"
-        status = request.args.get("status", "all")
+        # Defaults to unresolved - a resolved case isn't something to look
+        # at right now; the filter still lets someone switch to "All" or
+        # "Resolved" to look back.
+        status = request.args.get("status", "open")
         severity = request.args.get("severity", "all")
         group = request.args.get("group", "all")
         clinic = request.args.get("clinic", "all")

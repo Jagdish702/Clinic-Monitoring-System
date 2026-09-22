@@ -360,6 +360,47 @@ def get_incident(db: Any, incident_id: int) -> Optional[Dict[str, Any]]:
     return _enrich(dict(row), time.time())
 
 
+def most_problematic_clinics(
+    db: Any, window_seconds: float, limit: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Clinics with an open incident created within the last ``window_seconds``,
+    one row per clinic (its own highest-severity, most-recently-created
+    qualifying incident - a clinic with two open incidents in the window is
+    represented by whichever is worse), ranked severity-first (High before
+    Medium; Low never reaches here since a "normal"/Low reading only ever
+    resolves an incident, never opens one - see classify_and_link()) and
+    most-recently-created as the tiebreak within the same severity.
+
+    Basis is creation time (first_seen_ts), deliberately not last_seen_ts or
+    resolved_ts - an incident reconfirmed on every patrol lap for the last
+    hour still reads as "created an hour ago", not "just now".
+
+    Powers the dashboard's Fast Moving (5-minute window, top 3) and Slow
+    Moving (1-hour window, uncapped) views - both are this same query, just
+    a different window_seconds/limit, so a "fast moving" clinic is always
+    also present in "slow moving" if you widen the window.
+    """
+    now = time.time()
+    since = now - window_seconds
+    rows = db.conn.execute(
+        "SELECT * FROM incidents WHERE status = 'open' AND first_seen_ts >= ? "
+        "ORDER BY "
+        "CASE severity WHEN 'High' THEN 2 WHEN 'Medium' THEN 1 ELSE 0 END DESC, "
+        "first_seen_ts DESC",
+        (since,),
+    ).fetchall()
+
+    by_clinic: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        clinic = row["clinic_name"]
+        if clinic not in by_clinic:
+            by_clinic[clinic] = _enrich(dict(row), now)
+
+    ranked = list(by_clinic.values())
+    return ranked[:limit] if limit else ranked
+
+
 def top_concerns(
     db: Any,
     clinic: Optional[str] = None,

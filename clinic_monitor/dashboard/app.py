@@ -185,7 +185,19 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             })
         tree.sort(key=lambda s: (s["average"] is None, s["average"] or 0))
 
-        problematic = scoring.most_problematic_now(database, limit=3)
+        # Fast Moving: top 3 clinics with a High/Medium ticket opened in the
+        # last 5 minutes - "what's happening right now". Slow Moving:
+        # every clinic with one opened in the last hour, uncapped - serious
+        # problems that have stayed open rather than resolving quickly.
+        # Both are the same query at a different window (see
+        # analysis.incidents.most_problematic_clinics's docstring), ranked
+        # by severity then by how recently the ticket was created.
+        fast_moving = incidents_lib.most_problematic_clinics(
+            database, window_seconds=5 * 60, limit=3
+        )
+        slow_moving = incidents_lib.most_problematic_clinics(
+            database, window_seconds=60 * 60
+        )
 
         return render_template(
             "scores.html",
@@ -197,7 +209,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             clusters=clusters,
             clinics=clinics,
             tree=tree,
-            problematic=problematic,
+            fast_moving=fast_moving,
+            slow_moving=slow_moving,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

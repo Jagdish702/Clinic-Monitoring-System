@@ -315,10 +315,10 @@ class Database:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_obs_cluster ON observations (state, cluster)"
             )
-            # Supports the "latest status per clinic" GROUP BY in
-            # analysis.scoring.most_problematic_now() - without this, that
-            # query degrades badly once clinic_status grows into the
-            # thousands of rows.
+            # Supports every "this clinic's own status history, most recent
+            # first" lookup (dashboard/app.py's _clinic_location(), among
+            # others) - without this, that query degrades badly once
+            # clinic_status grows into the thousands of rows.
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_status_clinic "
                 "ON clinic_status (clinic_name, ts_epoch)"

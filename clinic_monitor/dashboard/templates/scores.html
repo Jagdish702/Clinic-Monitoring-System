@@ -69,6 +69,7 @@
 
   .section{display:flex;flex-direction:column;gap:12px}
   .section h2{font:600 15px var(--font-ui);margin:0}
+  .section .hint{color:var(--muted);font-size:12px;margin:-8px 0 0}
 
   .problem-row{display:flex;gap:16px;flex-wrap:wrap}
   .problem-card{
@@ -187,29 +188,33 @@
       {% endfor %}
     </div>
 
-    <div class="section">
-      <h2>Most problematic right now</h2>
-      {% if problematic %}
+    {% macro problem_list(items, empty_text) %}
+      {% if items %}
         <div class="problem-row">
-          {% for p in problematic %}
-            <div class="problem-card">
-              <span class="name">{{ p.clinic_name }}</span>
-              {% if p.reason == 'Device offline' %}
-                <span class="reason offline">Offline</span>
-              {% elif p.reason == 'High alert' %}
-                <span class="reason high">High alert</span>
-              {% elif p.reason == 'Medium alert' %}
-                <span class="reason medium">Medium alert</span>
-              {% else %}
-                <span class="reason low24h">{{ p.reason }}</span>
-              {% endif %}
-              <span class="detail">{{ p.detail }}</span>
-            </div>
+          {% for i in items %}
+            <a class="problem-card" href="/clinic/{{ i.clinic_name | urlencode }}">
+              <span class="name">{{ i.clinic_name }}</span>
+              <span class="reason {{ i.severity|lower }}">{{ i.severity }} alert</span>
+              <span class="detail">{{ i.category_group }} · {{ i.category }}</span>
+              <span class="detail">ticket opened {{ (i.duration_seconds / 60)|round|int }}m ago</span>
+            </a>
           {% endfor %}
         </div>
       {% else %}
-        <p class="problem-empty">No clinics have data yet.</p>
+        <p class="problem-empty">{{ empty_text }}</p>
       {% endif %}
+    {% endmacro %}
+
+    <div class="section">
+      <h2>Fast Moving Clinics — last 5 minutes</h2>
+      <p class="hint">Top 3 clinics with an unresolved High/Medium ticket opened in the last 5 minutes, highest severity first - what's happening right now.</p>
+      {{ problem_list(fast_moving, "No tickets opened in the last 5 minutes.") }}
+    </div>
+
+    <div class="section">
+      <h2>Slow Moving Clinics — last 1 hour</h2>
+      <p class="hint">Every clinic with an unresolved High/Medium ticket opened in the last hour, highest severity first - serious problems that have stayed open.</p>
+      {{ problem_list(slow_moving, "No unresolved tickets opened in the last hour.") }}
     </div>
 
     {% macro score_span(value) %}

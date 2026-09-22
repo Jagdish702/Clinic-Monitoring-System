@@ -256,8 +256,8 @@
                   <td class="num">{{ '%.0f'|format(r.timeliness) if r.timeliness is not none else '—' }}</td>
                   <td class="num">{{ '%.0f'|format(r.incidents) if r.incidents is not none else '—' }}</td>
                   <td class="num">{{ '%.0f'|format(r.camera_availability) if r.camera_availability is not none else '—' }}</td>
-                  <td class="num">{{ '%.0f'|format(r.high_pct) if r.high_pct is not none else '—' }}</td>
-                  <td class="num">{{ '%.0f'|format(r.medium_pct) if r.medium_pct is not none else '—' }}</td>
+                  <td class="num">{{ '%.1f'|format(r.high_pct) if r.high_pct is not none else '—' }}</td>
+                  <td class="num">{{ '%.1f'|format(r.medium_pct) if r.medium_pct is not none else '—' }}</td>
                   <td class="num">{{ '%.0f'|format(r.ettr_minutes) if r.ettr_minutes is not none else '—' }}</td>
                   <td class="num">{{ score_span(r.overall) }}</td>
                 </tr>

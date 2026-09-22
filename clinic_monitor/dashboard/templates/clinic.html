@@ -99,6 +99,27 @@
     padding:14px 16px;display:flex;flex-direction:column;gap:6px}
   .concern-card .count{font:600 22px var(--font-ui)}
   .concern-card .cat{font-size:12px;color:var(--muted)}
+
+  .breadcrumb{font-size:12px;color:var(--muted);margin:0 0 6px}
+  .breadcrumb a{color:var(--brand)}
+  .breadcrumb a:hover{text-decoration:underline}
+  .breadcrumb .sep{margin:0 6px;color:var(--line)}
+
+  .pie-row{display:flex;gap:14px;flex-wrap:wrap}
+  .pie-card{flex:1;min-width:150px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:14px 16px;display:flex;flex-direction:column;
+    align-items:center;gap:8px}
+  .pie{width:72px;height:72px;border-radius:50%;flex:0 0 auto}
+  .pie-empty{width:72px;height:72px;border-radius:50%;background:var(--bg);flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;
+    text-align:center;padding:6px}
+  .pie-window{font:600 12px var(--font-ui)}
+  .pie-legend{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);width:100%}
+  .pie-legend .row{display:flex;align-items:center;gap:6px}
+  .pie-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .pie-dot.high{background:var(--high-fg)}
+  .pie-dot.medium{background:var(--med-fg)}
+  .pie-dot.low{background:var(--low-fg)}
 </style>
 </head>
 <body>
@@ -120,6 +141,12 @@
 
   <main class="main">
     <div>
+      <p class="breadcrumb">
+        <a href="/scores">Overall</a>
+        {% if clinic_state %}<span class="sep">›</span><a href="/state/{{ clinic_state | urlencode }}">{{ clinic_state }}</a>{% endif %}
+        {% if clinic_cluster %}<span class="sep">›</span><a href="/cluster/{{ clinic_cluster | urlencode }}">{{ clinic_cluster }}</a>{% endif %}
+        <span class="sep">›</span>{{ clinic_name }}
+      </p>
       <p class="page-title">{{ clinic_name }}</p>
       <p class="page-sub">Camera availability and schedule deviation for this clinic.</p>
     </div>
@@ -147,9 +174,9 @@
             <td class="num {{ 'problem' if m.camera_availability is not none and m.camera_availability < 80 }}">
               {{ '%.0f'|format(m.camera_availability) if m.camera_availability is not none else '—' }}</td>
             <td class="num {{ 'problem' if m.high_pct and m.high_pct > 10 }}">
-              {{ '%.0f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
+              {{ '%.1f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
             <td class="num {{ 'watch' if m.medium_pct and m.medium_pct > 25 }}">
-              {{ '%.0f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
+              {{ '%.1f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
             <td class="num {{ 'problem' if m.ettr_minutes and m.ettr_minutes > 240 }}">
               {{ '%.0f'|format(m.ettr_minutes) if m.ettr_minutes is not none else '—' }}</td>
             <td class="num">{{ '%.0f'|format(m.overall) if m.overall is not none else '—' }}</td>
@@ -157,6 +184,34 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Issue distribution</h2>
+      <p class="hint">Share of every check in each window that came back High, Medium, or Low (Low = normal activity, not an incident).</p>
+      <div class="pie-row">
+        {% for m in timeline_metrics %}
+        <div class="pie-card">
+          {% if m.high_pct is not none %}
+          <div class="pie" style="background: conic-gradient(
+            var(--high-fg) 0% {{ m.high_pct }}%,
+            var(--med-fg) {{ m.high_pct }}% {{ m.high_pct + m.medium_pct }}%,
+            var(--low-fg) {{ m.high_pct + m.medium_pct }}% 100%)"></div>
+          {% else %}
+          <div class="pie-empty">no data</div>
+          {% endif %}
+          <span class="pie-window">{{ m.window }}</span>
+          <div class="pie-legend">
+            <span class="row"><span class="pie-dot high"></span>High
+              {{ '%.1f'|format(m.high_pct) if m.high_pct is not none else '—' }}%</span>
+            <span class="row"><span class="pie-dot medium"></span>Medium
+              {{ '%.1f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}%</span>
+            <span class="row"><span class="pie-dot low"></span>Low
+              {{ '%.1f'|format(m.low_pct) if m.low_pct is not none else '—' }}%</span>
+          </div>
+        </div>
+        {% endfor %}
       </div>
     </div>
 

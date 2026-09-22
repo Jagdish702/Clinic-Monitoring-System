@@ -16,7 +16,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from flask import (
     Flask, Response, abort, jsonify, render_template, request,
@@ -236,6 +236,22 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         _page_cache[key] = (now, html)
         return html
 
+    def _with_low_pct(metrics: dict) -> dict:
+        """
+        Add "low_pct" (the remainder of the High/Medium split) to one
+        timeline_metrics window entry, for the issue-distribution pie chart -
+        high_pct + medium_pct + low_pct always sums to 100 for a window with
+        any data. Rounding two independently-rounded percentages can push
+        the remainder a hair below 0 (e.g. 60.0 + 40.1), so it's floored at
+        0 rather than shown as a small negative slice.
+        """
+        high, medium = metrics.get("high_pct"), metrics.get("medium_pct")
+        if high is None or medium is None:
+            metrics["low_pct"] = None
+        else:
+            metrics["low_pct"] = round(max(0.0, 100.0 - high - medium), 1)
+        return metrics
+
     def _clinic_location(clinic_name: str):
         """
         One clinic's (state, cluster), the most recent tag from either
@@ -373,7 +389,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             database, days_30, roles, state=loc_state, cluster=loc_cluster
         )
         timeline_metrics = [
-            {
+            _with_low_pct({
                 "window": w,
                 **(
                     scoring.clinic_scores(
@@ -382,7 +398,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                     ).get(clinic_name)
                     or {}
                 ),
-            }
+            })
             for w in scoring.WINDOWS
         ]
 
@@ -412,6 +428,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         return render_template(
             "clinic.html",
             clinic_name=clinic_name,
+            clinic_state=loc_state,
+            clinic_cluster=loc_cluster,
             camera_available=camera_available,
             camera_total=camera_total,
             expected_open=config.EXPECTED_OPEN,
@@ -464,16 +482,21 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         hours_by_day = scoring._operating_hours_by_day(
             database, days_30, roles, state=state, cluster=cluster
         )
+        # Kept ungrouped (per clinic), not just the group_metrics() average,
+        # so "Today" can drive the most-problematic rankings below without
+        # a second scoring pass over the same window.
+        scores_by_window = {
+            w: scoring.clinic_scores(
+                database, window=w, state=state, cluster=cluster,
+                roles=roles, hours_by_day=hours_by_day,
+            )
+            for w in scoring.WINDOWS
+        }
         timeline_metrics = [
-            {
+            _with_low_pct({
                 "window": w,
-                **scoring.group_metrics(
-                    scoring.clinic_scores(
-                        database, window=w, state=state, cluster=cluster,
-                        roles=roles, hours_by_day=hours_by_day,
-                    )
-                ),
-            }
+                **scoring.group_metrics(scores_by_window[w]),
+            })
             for w in scoring.WINDOWS
         ]
 
@@ -527,6 +550,70 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             else database.group_counts("cluster", state=state)
         )
 
+        # A cluster page's own "most problematic clinics", two ways - by
+        # today's overall score (the same number the Timelines x Metrics
+        # table already shows, just per clinic instead of averaged away),
+        # and by raw count of High/Medium incidents over the last 30 days
+        # (from the case lists just above - a clinic hit repeatedly reads
+        # as more problematic here even if each individual incident was
+        # brief). Today's per-clinic scores were already computed above
+        # for the group average, so this is free - no extra query.
+        most_problematic_by_score: List[Dict[str, Any]] = []
+        most_problematic_by_incidents: List[Dict[str, Any]] = []
+        if level == "Cluster":
+            today_scores = scores_by_window["Today"]
+            ranked = sorted(
+                (
+                    (c, v["overall"]) for c, v in today_scores.items()
+                    if v["overall"] is not None
+                ),
+                key=lambda item: item[1],
+            )
+            most_problematic_by_score = [
+                {"clinic_name": c, "overall": overall} for c, overall in ranked[:5]
+            ]
+
+            incident_counts: Dict[str, int] = {}
+            for i in high_cases + medium_cases:
+                incident_counts[i["clinic_name"]] = (
+                    incident_counts.get(i["clinic_name"], 0) + 1
+                )
+            most_problematic_by_incidents = [
+                {"clinic_name": c, "count": n}
+                for c, n in sorted(incident_counts.items(), key=lambda kv: -kv[1])[:5]
+            ]
+
+        # A state page's cluster list, worst-first instead of alphabetical -
+        # each clinic's own row in day_rows already carries its cluster tag
+        # (from daily_summary(), computed above), so this reuses that
+        # instead of a fresh fleet-wide clinic_locations() lookup.
+        if level == "State":
+            today_scores = scores_by_window["Today"]
+            clinic_cluster = {r["clinic"]: r["cluster"] for r in day_rows if r["cluster"]}
+            cluster_scores: Dict[str, List[float]] = {}
+            for clinic_name_, v in today_scores.items():
+                if v["overall"] is None:
+                    continue
+                cl = clinic_cluster.get(clinic_name_)
+                if not cl:
+                    continue
+                cluster_scores.setdefault(cl, []).append(v["overall"])
+            cluster_avg = {
+                cl: sum(vals) / len(vals) for cl, vals in cluster_scores.items()
+            }
+            # No score today (a brand-new cluster, or a quiet one) sorts
+            # after every scored cluster, alphabetically among themselves,
+            # rather than landing at the top by an accidental empty-first
+            # sort or vanishing from the list.
+            children = sorted(
+                children,
+                key=lambda c: (
+                    cluster_avg.get(c["value"]) is None,
+                    cluster_avg.get(c["value"], 0.0),
+                    c["value"],
+                ),
+            )
+
         return render_template(
             "group.html",
             level=level,
@@ -536,6 +623,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             clinics_open_today=clinics_open_today,
             clinics_offline_today=clinics_offline_today,
             timeline_metrics=timeline_metrics,
+            most_problematic_by_score=most_problematic_by_score,
+            most_problematic_by_incidents=most_problematic_by_incidents,
             top_concerns=top_concerns,
             high_cases=high_cases,
             medium_cases=medium_cases,

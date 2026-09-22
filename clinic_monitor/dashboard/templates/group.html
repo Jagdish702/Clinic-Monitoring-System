@@ -101,6 +101,32 @@
     background:var(--white);box-shadow:var(--shadow-card);font-size:12px;color:var(--text)}
   .chip:hover{color:var(--brand)}
   .chip .n{color:var(--muted)}
+
+  .pie-row{display:flex;gap:14px;flex-wrap:wrap}
+  .pie-card{flex:1;min-width:150px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:14px 16px;display:flex;flex-direction:column;
+    align-items:center;gap:8px}
+  .pie{width:72px;height:72px;border-radius:50%;flex:0 0 auto}
+  .pie-empty{width:72px;height:72px;border-radius:50%;background:var(--bg);flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;
+    text-align:center;padding:6px}
+  .pie-window{font:600 12px var(--font-ui)}
+  .pie-legend{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);width:100%}
+  .pie-legend .row{display:flex;align-items:center;gap:6px}
+  .pie-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .pie-dot.high{background:var(--high-fg)}
+  .pie-dot.medium{background:var(--med-fg)}
+  .pie-dot.low{background:var(--low-fg)}
+
+  .rank-row{display:flex;gap:16px;flex-wrap:wrap}
+  .rank-list{flex:1;min-width:260px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:6px 0}
+  .rank-item{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 16px;font-size:13px}
+  .rank-item:not(:last-child){border-bottom:1px solid var(--line)}
+  .rank-item .n{color:var(--muted);font-size:11px;width:16px}
+  .rank-item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rank-item .metric{font-weight:600;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -161,9 +187,9 @@
             <td class="num {{ 'problem' if m.camera_availability is not none and m.camera_availability < 80 }}">
               {{ '%.0f'|format(m.camera_availability) if m.camera_availability is not none else '—' }}</td>
             <td class="num {{ 'problem' if m.high_pct and m.high_pct > 10 }}">
-              {{ '%.0f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
+              {{ '%.1f'|format(m.high_pct) if m.high_pct is not none else '—' }}</td>
             <td class="num {{ 'watch' if m.medium_pct and m.medium_pct > 25 }}">
-              {{ '%.0f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
+              {{ '%.1f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}</td>
             <td class="num {{ 'problem' if m.ettr_minutes and m.ettr_minutes > 240 }}">
               {{ '%.0f'|format(m.ettr_minutes) if m.ettr_minutes is not none else '—' }}</td>
             <td class="num">{{ '%.0f'|format(m.overall) if m.overall is not none else '—' }}</td>
@@ -171,6 +197,34 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Issue distribution</h2>
+      <p class="hint">Share of every check in each window that came back High, Medium, or Low (Low = normal activity, not an incident), averaged across every clinic in this {{ level|lower }}.</p>
+      <div class="pie-row">
+        {% for m in timeline_metrics %}
+        <div class="pie-card">
+          {% if m.high_pct is not none %}
+          <div class="pie" style="background: conic-gradient(
+            var(--high-fg) 0% {{ m.high_pct }}%,
+            var(--med-fg) {{ m.high_pct }}% {{ m.high_pct + m.medium_pct }}%,
+            var(--low-fg) {{ m.high_pct + m.medium_pct }}% 100%)"></div>
+          {% else %}
+          <div class="pie-empty">no data</div>
+          {% endif %}
+          <span class="pie-window">{{ m.window }}</span>
+          <div class="pie-legend">
+            <span class="row"><span class="pie-dot high"></span>High
+              {{ '%.1f'|format(m.high_pct) if m.high_pct is not none else '—' }}%</span>
+            <span class="row"><span class="pie-dot medium"></span>Medium
+              {{ '%.1f'|format(m.medium_pct) if m.medium_pct is not none else '—' }}%</span>
+            <span class="row"><span class="pie-dot low"></span>Low
+              {{ '%.1f'|format(m.low_pct) if m.low_pct is not none else '—' }}%</span>
+          </div>
+        </div>
+        {% endfor %}
       </div>
     </div>
 
@@ -188,6 +242,35 @@
         <div class="value-row"><span class="value">{{ clinics_offline_today }}</span><span class="of">/{{ clinics_total }}</span></div>
       </div>
     </div>
+
+    {% if level == 'Cluster' %}
+    <div class="section">
+      <h2>Most problematic clinics</h2>
+      <p class="hint">Left: lowest overall score today. Right: most High + Medium incidents over the last 30 days.</p>
+      <div class="rank-row">
+        <div class="rank-list">
+          {% for c in most_problematic_by_score %}
+          <a class="rank-item" href="/clinic/{{ c.clinic_name | urlencode }}">
+            <span class="n">{{ loop.index }}</span>
+            <span class="name">{{ c.clinic_name }}</span>
+            <span class="metric">{{ '%.0f'|format(c.overall) }}</span>
+          </a>
+          {% endfor %}
+          {% if not most_problematic_by_score %}<p class="empty">No scored clinics today yet.</p>{% endif %}
+        </div>
+        <div class="rank-list">
+          {% for c in most_problematic_by_incidents %}
+          <a class="rank-item" href="/clinic/{{ c.clinic_name | urlencode }}">
+            <span class="n">{{ loop.index }}</span>
+            <span class="name">{{ c.clinic_name }}</span>
+            <span class="metric">{{ c.count }}</span>
+          </a>
+          {% endfor %}
+          {% if not most_problematic_by_incidents %}<p class="empty">No High/Medium incidents in the last 30 days.</p>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     <div class="section">
       <h2>Top areas of concern — last 30 days</h2>

@@ -171,15 +171,8 @@
           {% endfor %}
         </select>
       </div>
-      <div class="filter-field">
-        <label>Open for / TTR</label>
-        <select name="dir" id="ttr-dir"
-                onchange="document.getElementById('sort-field').value='duration'; this.form.submit();">
-          <option value="desc" {% if direction != 'asc' %}selected{% endif %}>High to Low</option>
-          <option value="asc" {% if direction == 'asc' %}selected{% endif %}>Low to High</option>
-        </select>
-      </div>
-      <input type="hidden" name="sort" id="sort-field" value="{{ sort }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="dir" value="{{ direction }}">
       <div class="filter-field"><label>&nbsp;</label><button type="submit">Apply</button></div>
     </form>
 

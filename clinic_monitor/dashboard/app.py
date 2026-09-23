@@ -493,12 +493,22 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # needs attention now. Unresolved only - a case someone already
         # closed out isn't something to look at right now.
         top_concerns = incidents_lib.top_concerns(database, clinic_name, window="30D")
-        # Every category, not just the top 5 - top_concerns() itself already
-        # excludes "normal" and sorts most-frequent-first, exactly the order
-        # a pie chart wants its slices in.
-        category_pie = _category_pie(
-            incidents_lib.top_concerns(database, clinic_name, window="30D", limit=100)
-        )
+        # One pie per window, same Today/Yesterday/3D/7D/14D/30D breakdown
+        # as the severity-distribution row above. Every category, not just
+        # the top 5 - top_concerns() itself already excludes "normal" and
+        # sorts most-frequent-first, exactly the order a pie chart wants
+        # its slices in.
+        category_pies = [
+            {
+                "window": w,
+                **_category_pie(
+                    incidents_lib.top_concerns(
+                        database, clinic_name, window=w, limit=100
+                    )
+                ),
+            }
+            for w in scoring.WINDOWS
+        ]
         high_cases = incidents_lib.list_incidents(
             database, clinic=clinic_name, severity="High", status="open", window="30D"
         )
@@ -530,7 +540,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             recent_events=recent_events,
             timeline_metrics=timeline_metrics,
             top_concerns=top_concerns,
-            category_pie=category_pie,
+            category_pies=category_pies,
             high_cases=high_cases,
             medium_cases=medium_cases,
             latest_views=latest_views,
@@ -596,11 +606,18 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         top_concerns = incidents_lib.top_concerns(
             database, state=state, cluster=cluster, window="30D"
         )
-        category_pie = _category_pie(
-            incidents_lib.top_concerns(
-                database, state=state, cluster=cluster, window="30D", limit=100
-            )
-        )
+        # One pie per window, same breakdown as clinic_page()'s.
+        category_pies = [
+            {
+                "window": w,
+                **_category_pie(
+                    incidents_lib.top_concerns(
+                        database, state=state, cluster=cluster, window=w, limit=100
+                    )
+                ),
+            }
+            for w in scoring.WINDOWS
+        ]
         # Unresolved only - see clinic_page()'s comment on the same choice.
         high_cases = incidents_lib.list_incidents(
             database, state=state, cluster=cluster, severity="High",
@@ -727,7 +744,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             most_problematic_by_score=most_problematic_by_score,
             most_problematic_by_incidents=most_problematic_by_incidents,
             top_concerns=top_concerns,
-            category_pie=category_pie,
+            category_pies=category_pies,
             high_cases=high_cases,
             medium_cases=medium_cases,
             latest_views=latest_views,

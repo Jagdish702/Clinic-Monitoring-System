@@ -118,12 +118,19 @@
   .pie-dot.medium{background:var(--med-fg)}
   .pie-dot.low{background:var(--low-fg)}
 
-  .category-pie-row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;
-    background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);padding:20px}
-  .category-pie{width:200px;height:200px;border-radius:50%;flex:0 0 auto}
-  .category-legend{display:flex;flex-direction:column;gap:6px;flex:1;min-width:220px}
-  .category-legend-row{display:flex;align-items:center;gap:8px;font-size:12px}
-  .category-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+  .category-pie-row{display:flex;gap:14px;flex-wrap:wrap}
+  .category-pie-card{flex:1;min-width:220px;background:var(--white);border-radius:16px;
+    box-shadow:var(--shadow-card);padding:14px 16px;display:flex;flex-direction:column;
+    align-items:center;gap:8px}
+  .category-pie{width:96px;height:96px;border-radius:50%;flex:0 0 auto}
+  .category-pie-empty{width:96px;height:96px;border-radius:50%;background:var(--bg);flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;
+    text-align:center;padding:6px}
+  .category-pie-window{font:600 12px var(--font-ui)}
+  .category-legend{display:flex;flex-direction:column;gap:3px;font-size:11px;width:100%;
+    max-height:170px;overflow-y:auto}
+  .category-legend-row{display:flex;align-items:center;gap:6px}
+  .category-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
   .category-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .category-pct{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 
@@ -238,24 +245,29 @@
     </div>
 
     <div class="section">
-      <h2>Category distribution — last 30 days</h2>
-      <p class="hint">Every non-normal category, by share of checks, across every clinic in this {{ level|lower }}.</p>
-      {% if category_pie.gradient %}
+      <h2>Category distribution</h2>
+      <p class="hint">Every non-normal category, by share of checks, in each window, across every clinic in this {{ level|lower }}.</p>
       <div class="category-pie-row">
-        <div class="category-pie" style="background: {{ category_pie.gradient }}"></div>
-        <div class="category-legend">
-          {% for seg in category_pie.legend %}
-          <div class="category-legend-row">
-            <span class="category-dot" style="background: {{ seg.color }}"></span>
-            <span class="category-name">{{ seg.category_group }} · {{ seg.category }}</span>
-            <span class="category-pct">{{ '%.1f'|format(seg.pct) }}% ({{ seg.count }})</span>
+        {% for cp in category_pies %}
+        <div class="category-pie-card">
+          {% if cp.gradient %}
+          <div class="category-pie" style="background: {{ cp.gradient }}"></div>
+          {% else %}
+          <div class="category-pie-empty">no data</div>
+          {% endif %}
+          <span class="category-pie-window">{{ cp.window }}</span>
+          <div class="category-legend">
+            {% for seg in cp.legend %}
+            <div class="category-legend-row">
+              <span class="category-dot" style="background: {{ seg.color }}"></span>
+              <span class="category-name" title="{{ seg.category_group }}">{{ seg.category }}</span>
+              <span class="category-pct">{{ '%.1f'|format(seg.pct) }}%</span>
+            </div>
+            {% endfor %}
           </div>
-          {% endfor %}
         </div>
+        {% endfor %}
       </div>
-      {% else %}
-      <p class="empty">No non-normal categories recorded in the last 30 days.</p>
-      {% endif %}
     </div>
 
     <div class="cards">

@@ -128,6 +128,17 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
         day = _today()
         summary = database.dashboard_summary(day)
+        # Opened/closed/offline (report.daily_summary()'s own three-way
+        # status, not clinics_online/offline above which is about device
+        # connectivity, not whether staff were ever seen) - fleet-wide, no
+        # state/cluster filter, since this is the main dashboard's own
+        # stat card. Computed once per real page load (index() isn't on
+        # the 5s auto-refresh poll - only /api/events is), same cost class
+        # as dashboard_summary() just above it.
+        day_rows = reporting.daily_summary(day, db=database)
+        summary["clinics_opened_today"] = sum(1 for r in day_rows if r["status"] == "opened")
+        summary["clinics_closed_today"] = sum(1 for r in day_rows if r["status"] == "closed")
+        summary["clinics_checked_today"] = len(day_rows)
 
         return render_template(
             "index.html",
@@ -906,6 +917,42 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         return jsonify(
             {"day": day, "count": len(clinics), "clinics": clinics,
              "days_with_data": database.observed_days(limit=14)}
+        )
+
+    @app.route("/api/clinic_status")
+    def api_clinic_status():
+        """
+        Every clinic's opened/closed/offline status for one day, grouped
+        by state -> cluster - the "Clinics Opened Today" stat card's
+        click-through. Same three-way status report.daily_summary()
+        already computes for the cluster/state pages' own stat cards
+        (see its docstring for why "offline" is kept distinct from
+        "closed" - a clinic whose NVR dropped off the network looks
+        identical to a shut one through this system, and calling it
+        closed would blame the staff for a broken router).
+        """
+        day = request.args.get("day") or _today()
+        rows = reporting.daily_summary(day, db=database)
+        rows.sort(key=lambda r: (r["state_name"] or "￿", r["cluster"] or "￿", r["clinic"]))
+
+        status_days = [
+            r["d"]
+            for r in database.conn.execute(
+                "SELECT DISTINCT day AS d FROM clinic_status ORDER BY d DESC LIMIT 14"
+            ).fetchall()
+        ]
+        days = sorted(set(database.observed_days(limit=14)) | set(status_days),
+                      reverse=True)
+
+        return jsonify(
+            {
+                "day": day,
+                "opened": [r for r in rows if r["status"] == "opened"],
+                "closed": [r for r in rows if r["status"] == "closed"],
+                "offline": [r for r in rows if r["status"] == "offline"],
+                "total": len(rows),
+                "days_with_data": days,
+            }
         )
 
     @app.route("/api/offline")

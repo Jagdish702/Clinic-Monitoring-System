@@ -224,9 +224,10 @@
   .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
   .report th{background:var(--bg);font-weight:600;color:var(--muted)}
   .note{color:var(--muted);font-size:12px}
-  #csv-bar,#offline-csv-bar{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);
+  #csv-bar,#offline-csv-bar,#clinic-status-csv-bar{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);
            display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  #download-csv,#download-csv-plain,#download-offline-xlsx,#download-offline-csv{
+  #download-csv,#download-csv-plain,#download-offline-xlsx,#download-offline-csv,
+  #download-clinic-status-xlsx,#download-clinic-status-csv{
     text-decoration:none;display:inline-block}
   #offline-body h3{font-size:14px;font-weight:500;color:var(--brand);margin:4px 0 10px}
   #offline-body table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
@@ -473,6 +474,13 @@
       <button class="btn" id="clinic-status-close">Close</button>
     </div>
     <div class="sheet-body">
+      <div id="clinic-status-csv-bar">
+        <a class="btn primary" id="download-clinic-status-xlsx" href="/api/reports/xlsx" download>
+          Clinic Operations Report
+        </a>
+        <a class="btn" id="download-clinic-status-csv" href="/api/reports/csv" download>.csv</a>
+        <span class="note" id="clinic-status-csv-note"></span>
+      </div>
       <div id="clinic-status-body"><p class="note">loading…</p></div>
     </div>
   </div>
@@ -804,6 +812,15 @@ async function loadClinicStatus(day){
   if (!days.includes(d.day)) days.unshift(d.day);
   statusDay.innerHTML = days.map(x =>
     `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+
+  const csXlsxLink = document.getElementById("download-clinic-status-xlsx");
+  const csCsvLink  = document.getElementById("download-clinic-status-csv");
+  csXlsxLink.href = "/api/reports/xlsx?day=" + encodeURIComponent(d.day);
+  csXlsxLink.setAttribute("download", `clinic-daily-report-${d.day}.xlsx`);
+  csCsvLink.href = "/api/reports/csv?day=" + encodeURIComponent(d.day);
+  csCsvLink.setAttribute("download", `clinic-daily-report-${d.day}.csv`);
+  document.getElementById("clinic-status-csv-note").textContent =
+    `every clinic's opened/closed/offline status for ${d.day}`;
 
   statusBody.innerHTML = `
     <h3>Opened (${d.opened.length})</h3>

@@ -120,6 +120,15 @@
   .pie-dot.high{background:var(--high-fg)}
   .pie-dot.medium{background:var(--med-fg)}
   .pie-dot.low{background:var(--low-fg)}
+
+  .category-pie-row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;
+    background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);padding:20px}
+  .category-pie{width:200px;height:200px;border-radius:50%;flex:0 0 auto}
+  .category-legend{display:flex;flex-direction:column;gap:6px;flex:1;min-width:220px}
+  .category-legend-row{display:flex;align-items:center;gap:8px;font-size:12px}
+  .category-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+  .category-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .category-pct{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -188,7 +197,7 @@
     </div>
 
     <div class="section">
-      <h2>Issue distribution</h2>
+      <h2>Severity distribution</h2>
       <p class="hint">Share of every check in each window that came back High, Medium, or Low (Low = normal activity, not an incident).</p>
       <div class="pie-row">
         {% for m in timeline_metrics %}
@@ -213,6 +222,27 @@
         </div>
         {% endfor %}
       </div>
+    </div>
+
+    <div class="section">
+      <h2>Category distribution — last 30 days</h2>
+      <p class="hint">Every non-normal category, by share of checks.</p>
+      {% if category_pie.gradient %}
+      <div class="category-pie-row">
+        <div class="category-pie" style="background: {{ category_pie.gradient }}"></div>
+        <div class="category-legend">
+          {% for seg in category_pie.legend %}
+          <div class="category-legend-row">
+            <span class="category-dot" style="background: {{ seg.color }}"></span>
+            <span class="category-name">{{ seg.category_group }} · {{ seg.category }}</span>
+            <span class="category-pct">{{ '%.1f'|format(seg.pct) }}% ({{ seg.count }})</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <p class="empty">No non-normal categories recorded in the last 30 days.</p>
+      {% endif %}
     </div>
 
     <div class="cards">

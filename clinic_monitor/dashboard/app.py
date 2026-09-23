@@ -36,6 +36,31 @@ from storage.database import Database, ignored_clause  # noqa: E402
 
 SEVERITIES = ("High", "Medium", "Low")
 
+# One color per category, for the category-distribution pie chart - grouped
+# into color families by analysis.incidents.CATEGORY_GROUPS (Staff behavior:
+# purple/blue, Clinic infrastructure: green/teal, Camera-related: gold,
+# Emergency: red) so the legend still reads as coherent groups even with
+# every individual category as its own slice.
+_CATEGORY_COLORS: Dict[str, str] = {
+    "staff_apron": "#6c5ce7",
+    "staff_grooming": "#a29bfe",
+    "staff_badge": "#4834d4",
+    "staff_head_cover": "#7f78d2",
+    "ppe_sample_collection": "#341f97",
+    "staff_phone": "#535c68",
+    "staff_eating": "#8395a7",
+    "parking_area": "#00b894",
+    "compound_wall": "#00cec9",
+    "reception_cleanliness": "#20bf6b",
+    "medical_waste": "#0fb9b1",
+    "sample_area_hygiene": "#26de81",
+    "pharmacy_organization": "#10ac84",
+    "hand_sanitizer": "#55efc4",
+    "camera_health": "#e1b12c",
+    "emergency": "#d82525",
+}
+_CATEGORY_COLOR_FALLBACK = "#808080"
+
 
 def create_app(db_path: Optional[Path] = None) -> Flask:
     app = Flask(__name__)
@@ -252,11 +277,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     def _with_low_pct(metrics: dict) -> dict:
         """
         Add "low_pct" (the remainder of the High/Medium split) to one
-        timeline_metrics window entry, for the issue-distribution pie chart -
-        high_pct + medium_pct + low_pct always sums to 100 for a window with
-        any data. Rounding two independently-rounded percentages can push
-        the remainder a hair below 0 (e.g. 60.0 + 40.1), so it's floored at
-        0 rather than shown as a small negative slice.
+        timeline_metrics window entry, for the severity-distribution pie
+        chart - high_pct + medium_pct + low_pct always sums to 100 for a
+        window with any data. Rounding two independently-rounded
+        percentages can push the remainder a hair below 0 (e.g. 60.0 +
+        40.1), so it's floored at 0 rather than shown as a small negative
+        slice.
         """
         high, medium = metrics.get("high_pct"), metrics.get("medium_pct")
         if high is None or medium is None:
@@ -264,6 +290,34 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         else:
             metrics["low_pct"] = round(max(0.0, 100.0 - high - medium), 1)
         return metrics
+
+    def _category_pie(concerns: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Turn a top_concerns()-shaped list into a category-distribution pie
+        chart: every category present (not just the top few), as one
+        CSS conic-gradient stop list plus a legend with each category's
+        share to one decimal. "normal" is never in ``concerns`` in the
+        first place (top_concerns() already excludes it - see its own
+        docstring) so this is concern categories only, same as "Top areas
+        of concern" right above it.
+        """
+        total = sum(c["count"] for c in concerns)
+        if not total:
+            return {"gradient": None, "legend": []}
+        legend = []
+        stops = []
+        cursor = 0.0
+        for c in concerns:
+            pct = round(100 * c["count"] / total, 1)
+            color = _CATEGORY_COLORS.get(c["category"], _CATEGORY_COLOR_FALLBACK)
+            start = cursor
+            cursor += 100 * c["count"] / total
+            stops.append(f"{color} {start:.4f}% {cursor:.4f}%")
+            legend.append({
+                "category": c["category"], "category_group": c["category_group"],
+                "count": c["count"], "pct": pct, "color": color,
+            })
+        return {"gradient": "conic-gradient(" + ", ".join(stops) + ")", "legend": legend}
 
     def _clinic_location(clinic_name: str):
         """
@@ -409,7 +463,14 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                         database, window=w, state=loc_state, cluster=loc_cluster,
                         roles=roles, hours_by_day=hours_by_day,
                     ).get(clinic_name)
-                    or {}
+                    # Every key present and None, not an empty dict - the
+                    # same fix group_metrics() needed for a cluster/state
+                    # page with no scoreable clinics (see its own comment):
+                    # a window this clinic has no score in still has to
+                    # look like a row with nothing to show, not one
+                    # missing the columns entirely, which the template's
+                    # m.timeliness (etc.) access crashes on.
+                    or {key: None for key in scoring._METRIC_KEYS}
                 ),
             })
             for w in scoring.WINDOWS
@@ -421,6 +482,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # needs attention now. Unresolved only - a case someone already
         # closed out isn't something to look at right now.
         top_concerns = incidents_lib.top_concerns(database, clinic_name, window="30D")
+        # Every category, not just the top 5 - top_concerns() itself already
+        # excludes "normal" and sorts most-frequent-first, exactly the order
+        # a pie chart wants its slices in.
+        category_pie = _category_pie(
+            incidents_lib.top_concerns(database, clinic_name, window="30D", limit=100)
+        )
         high_cases = incidents_lib.list_incidents(
             database, clinic=clinic_name, severity="High", status="open", window="30D"
         )
@@ -452,6 +519,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             recent_events=recent_events,
             timeline_metrics=timeline_metrics,
             top_concerns=top_concerns,
+            category_pie=category_pie,
             high_cases=high_cases,
             medium_cases=medium_cases,
             latest_views=latest_views,
@@ -516,6 +584,11 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
         top_concerns = incidents_lib.top_concerns(
             database, state=state, cluster=cluster, window="30D"
+        )
+        category_pie = _category_pie(
+            incidents_lib.top_concerns(
+                database, state=state, cluster=cluster, window="30D", limit=100
+            )
         )
         # Unresolved only - see clinic_page()'s comment on the same choice.
         high_cases = incidents_lib.list_incidents(
@@ -643,6 +716,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             most_problematic_by_score=most_problematic_by_score,
             most_problematic_by_incidents=most_problematic_by_incidents,
             top_concerns=top_concerns,
+            category_pie=category_pie,
             high_cases=high_cases,
             medium_cases=medium_cases,
             latest_views=latest_views,

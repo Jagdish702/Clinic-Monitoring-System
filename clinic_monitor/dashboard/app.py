@@ -154,6 +154,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             state=state,
             cluster=cluster,
             severities=SEVERITIES,
+            expected_open=config.EXPECTED_OPEN,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 

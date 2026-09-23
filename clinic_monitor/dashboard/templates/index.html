@@ -777,7 +777,27 @@ const statusBody     = document.getElementById("clinic-status-body");
 const statusDay      = document.getElementById("clinic-status-day");
 let clinicStatusDay = "";
 
-function statusGroup(rows, timeLabel, timeKey){
+const EXPECTED_OPEN = "{{ expected_open }}";
+
+// Up to expected open: On Time. Then 1-15 min late: Half an hour late,
+// 16-30 min late: One hour late, and from 31 min late on, every further
+// 30-minute block adds another half hour to the label (31-60 -> 1.5
+// hours late, 61-90 -> 2 hours late, 91-120 -> 2.5 hours late, ...).
+function latenessLabel(openTime){
+  if (!openTime) return "";
+  const [oh, om] = openTime.split(":").map(Number);
+  const [eh, em] = EXPECTED_OPEN.split(":").map(Number);
+  if ([oh, om, eh, em].some(Number.isNaN)) return "";
+  const minutesLate = (oh * 60 + om) - (eh * 60 + em);
+  if (minutesLate <= 0) return "On Time";
+  if (minutesLate <= 15) return "Half an hour late";
+  if (minutesLate <= 30) return "One hour late";
+  const hours = 1 + 0.5 * Math.ceil((minutesLate - 30) / 30);
+  const hoursStr = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  return `${hoursStr} hours late`;
+}
+
+function statusGroup(rows, timeLabel, timeKey, showLateness){
   if (!rows.length) return '<p class="note">None.</p>';
   const byState = new Map();
   for (const r of rows){
@@ -792,9 +812,9 @@ function statusGroup(rows, timeLabel, timeKey){
     html += `<div class="report-group"><div class="report-group-state">${esc(st)}</div>`;
     for (const [cl, list] of byCluster){
       html += `<div class="report-group-cluster">${esc(cl)}</div>
-        <div class="table-wrap"><table><thead><tr><th>Clinic</th><th>${esc(timeLabel)}</th></tr></thead><tbody>` +
+        <div class="table-wrap"><table><thead><tr><th>Clinic</th><th>${esc(timeLabel)}</th>${showLateness ? '<th>Status</th>' : ''}</tr></thead><tbody>` +
         list.map(r => `<tr onclick="window.location='/clinic/${encodeURIComponent(r.clinic)}'" style="cursor:pointer">
-          <td>${esc(r.clinic)}</td><td>${esc(r[timeKey] || "—")}</td></tr>`).join("") +
+          <td>${esc(r.clinic)}</td><td>${esc(r[timeKey] || "—")}</td>${showLateness ? `<td>${esc(latenessLabel(r[timeKey]))}</td>` : ''}</tr>`).join("") +
         `</tbody></table></div>`;
     }
     html += `</div>`;
@@ -824,7 +844,7 @@ async function loadClinicStatus(day){
 
   statusBody.innerHTML = `
     <h3>Opened (${d.opened.length})</h3>
-    ${statusGroup(d.opened, "Opened at", "opening_time")}
+    ${statusGroup(d.opened, "Opened at", "opening_time", true)}
     <h3 style="margin-top:22px">Closed (${d.closed.length})</h3>
     <p class="note" style="margin:-4px 0 10px">Cameras worked, but nobody was ever seen on them - not the same as offline (see Offline Clinics for unreachable devices).</p>
     ${statusGroup(d.closed, "Closed", "closing_time")}

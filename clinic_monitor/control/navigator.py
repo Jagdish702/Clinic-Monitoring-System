@@ -283,6 +283,30 @@ class PhoneNavigator:
         except NavigationError:
             return False
 
+        # A pending device-share notification ("You have 1 new sharing(s).")
+        # blocks the device list the same way an ANR dialog does - it holds
+        # window focus (reporting itself as
+        # com.hikvision.hikconnect.push.DeviceShareDialogActivity) until
+        # dismissed, and every patrol round hangs on "could not get back to
+        # the device list" until someone taps through it by hand - found
+        # live on clinic-monitor-rourkela, stuck since a device got shared
+        # into that account. "Later" only postpones the notification -
+        # accepting or declining the share itself is an account-level call
+        # patrol should never make unattended, so "View Now" is never
+        # tapped here even though it's on the same dialog.
+        if any("new sharing" in node.label.lower() for node in nodes):
+            button = next(
+                (n for n in nodes if n.label.strip().lower() == "later"), None
+            )
+            if button:
+                log.warning(
+                    "a pending device-share notification was blocking the "
+                    "device list - dismissing it with 'Later'"
+                )
+                self.tap(*button.center)
+                time.sleep(2.5)
+                return True
+
         # Detected from the dialog's own view ids, not from the focused window.
         # The focus string is unreliable here: the same dialog reported itself
         # as "systemui" once and as the app's own package the next time, so a

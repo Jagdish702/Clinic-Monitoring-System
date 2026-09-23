@@ -31,7 +31,7 @@ from analysis import incidents as incidents_lib  # noqa: E402
 from analysis import scoring  # noqa: E402
 from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from dashboard.render import markdown_to_html  # noqa: E402
-from dashboard.workbook import build_workbook  # noqa: E402
+from dashboard.workbook import build_offline_workbook, build_workbook  # noqa: E402
 from storage.database import Database, ignored_clause  # noqa: E402
 
 SEVERITIES = ("High", "Medium", "Low")
@@ -955,19 +955,13 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             }
         )
 
-    @app.route("/api/offline")
-    def api_offline():
+    def _offline_data(day: str):
         """
-        What was unreachable today, at two levels.
-
-        A clinic can be down in two different ways, and both matter: the whole
-        device unreachable (the patrol cannot even open it), or the device fine
-        but individual camera channels dead. The second is easy to miss because
-        the clinic still appears in every report.
+        Outages and camera issues for one day, each tagged with state/
+        cluster - shared by the JSON API and the xlsx/csv downloads below
+        so the two never drift apart on what counts as "offline that day".
         """
-        day = request.args.get("day") or _today()
         outages = database.offline_periods(day)
-        summary = database.clinic_status_summary(day)
 
         # Cameras that were faulty on every check of the day.
         hide, hide_params = ignored_clause()
@@ -996,9 +990,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             for r in rows
         ]
 
-        # State/cluster per clinic, and each cluster's escalation contact, so
-        # the page can group State -> Cluster -> Clinic the same way Reports
-        # does and show who to contact right on the cluster header.
+        # State/cluster per clinic, so the page can group State -> Cluster
+        # -> Clinic the same way Reports does.
         locations = scoring.clinic_locations(database)
         for row in outages:
             state, cluster = locations.get(row["clinic_name"], (None, None))
@@ -1006,6 +999,21 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         for row in cameras:
             state, cluster = locations.get(row["clinic_name"], (None, None))
             row["state"], row["cluster"] = state, cluster
+        return outages, cameras
+
+    @app.route("/api/offline")
+    def api_offline():
+        """
+        What was unreachable today, at two levels.
+
+        A clinic can be down in two different ways, and both matter: the whole
+        device unreachable (the patrol cannot even open it), or the device fine
+        but individual camera channels dead. The second is easy to miss because
+        the clinic still appears in every report.
+        """
+        day = request.args.get("day") or _today()
+        outages, cameras = _offline_data(day)
+        summary = database.clinic_status_summary(day)
         contacts = config.load_cluster_contacts()
 
         # A day where every clinic failed has no observations at all, so the
@@ -1029,6 +1037,71 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 "contacts": contacts,
                 "days_with_data": days,
             }
+        )
+
+    @app.route("/api/offline/csv")
+    def api_offline_csv():
+        """One CSV per day, outages and camera issues in one file (they
+        have different columns, so a "Section" column tells them apart -
+        the xlsx download keeps them on separate sheets instead)."""
+        day = request.args.get("day") or _today()
+        outages, cameras = _offline_data(day)
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+        writer.writerow(["Section", "State", "Cluster", "Clinic", "Camera",
+                         "Offline from", "Back at", "Status", "Duration (min)",
+                         "Checks", "Bad checks", "Reason"])
+        for row in outages:
+            writer.writerow([
+                "Outage", row.get("state", ""), row.get("cluster", ""),
+                row["clinic_name"], "",
+                (row.get("from") or "")[11:16], "Still offline" if row.get("ongoing")
+                else (row.get("to") or "")[11:16],
+                "Ongoing" if row.get("ongoing") else "Resolved",
+                round(row.get("minutes") or 0), row.get("checks", ""), "",
+                row.get("reason") or "",
+            ])
+        for row in cameras:
+            writer.writerow([
+                "Camera issue", row.get("state", ""), row.get("cluster", ""),
+                row["clinic_name"], row["camera_name"], "", "",
+                "Dead all day" if row["all_day"] else "Some checks bad",
+                "", row.get("checks", ""), row.get("bad", ""), "",
+            ])
+
+        return Response(
+            buffer.getvalue().encode("utf-8-sig"),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="offline-clinics-{day}.csv"'
+            },
+        )
+
+    @app.route("/api/offline/xlsx")
+    def api_offline_xlsx():
+        """One Excel workbook per day: clinics unreachable, and cameras
+        that reported no signal at least once - see build_offline_workbook()."""
+        day = request.args.get("day") or _today()
+        outages, cameras = _offline_data(day)
+        try:
+            book = build_offline_workbook(day, outages, cameras)
+        except RuntimeError as exc:            # openpyxl missing on this host
+            return jsonify({"ok": False, "day": day, "error": str(exc)}), 501
+
+        buffer = io.BytesIO()
+        book.save(buffer)
+        return Response(
+            buffer.getvalue(),
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="offline-clinics-{day}.xlsx"'
+            },
         )
 
     @app.route("/api/reports/csv")

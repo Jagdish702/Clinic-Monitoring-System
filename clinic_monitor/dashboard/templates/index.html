@@ -224,9 +224,10 @@
   .report th,.report td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
   .report th{background:var(--bg);font-weight:600;color:var(--muted)}
   .note{color:var(--muted);font-size:12px}
-  #csv-bar{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);
+  #csv-bar,#offline-csv-bar{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);
            display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  #download-csv,#download-csv-plain{text-decoration:none;display:inline-block}
+  #download-csv,#download-csv-plain,#download-offline-xlsx,#download-offline-csv{
+    text-decoration:none;display:inline-block}
   #offline-body h3{font-size:14px;font-weight:500;color:var(--brand);margin:4px 0 10px}
   #offline-body table{border-collapse:collapse;width:100%;font-size:13px;min-width:420px}
   #offline-body th,#offline-body td{border:1px solid var(--line);padding:7px 10px;text-align:left}
@@ -450,6 +451,13 @@
       <button class="btn" id="offline-close">Close</button>
     </div>
     <div class="sheet-body">
+      <div id="offline-csv-bar">
+        <a class="btn primary" id="download-offline-xlsx" href="/api/offline/xlsx" download>
+          Offline Clinics Report
+        </a>
+        <a class="btn" id="download-offline-csv" href="/api/offline/csv" download>.csv</a>
+        <span class="note" id="offline-csv-note"></span>
+      </div>
       <div id="offline-body"><p class="note">loading…</p></div>
     </div>
   </div>
@@ -639,6 +647,15 @@ async function loadOffline(day){
   if (!days.includes(d.day)) days.unshift(d.day);
   offDay.innerHTML = days.map(x =>
     `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+
+  const offXlsxLink = document.getElementById("download-offline-xlsx");
+  const offCsvLink  = document.getElementById("download-offline-csv");
+  offXlsxLink.href = "/api/offline/xlsx?day=" + encodeURIComponent(d.day);
+  offXlsxLink.setAttribute("download", `offline-clinics-${d.day}.xlsx`);
+  offCsvLink.href = "/api/offline/csv?day=" + encodeURIComponent(d.day);
+  offCsvLink.setAttribute("download", `offline-clinics-${d.day}.csv`);
+  document.getElementById("offline-csv-note").textContent =
+    `every outage and camera issue for ${d.day}`;
 
   const contacts = d.contacts || {};
 

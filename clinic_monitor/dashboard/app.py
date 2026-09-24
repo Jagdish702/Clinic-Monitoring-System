@@ -14,7 +14,7 @@ import csv
 import io
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -559,7 +559,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             f"clinic:{clinic_name}", lambda: _build_clinic_page(clinic_name)
         )
 
-    def _group_page(level: str, name: str, state: Optional[str], cluster: Optional[str]):
+    def _group_page(
+        level: str, name: str, state: Optional[str], cluster: Optional[str], day: str,
+    ):
         """
         Shared by /state/<name> and /cluster/<name> - the same sections a
         clinic's own page has, aggregated across every clinic in scope
@@ -570,6 +572,14 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         up which state a cluster belongs to.
         """
         today = datetime.now().date()
+        try:
+            recent_events_day = date.fromisoformat(day)
+        except ValueError:
+            recent_events_day = today
+        day_start = datetime.combine(recent_events_day, datetime.min.time()).timestamp()
+        day_end = datetime.combine(
+            recent_events_day + timedelta(days=1), datetime.min.time()
+        ).timestamp()
 
         clinic_names = [
             r["value"] for r in database.group_counts("clinic_name", state=state, cluster=cluster)
@@ -629,16 +639,19 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             status="open", window="30D",
         )
 
-        # A generous pull (not just the 20 shown below) so "one screenshot
+        # A generous pull (not just the 12 shown below) so "one screenshot
         # per clinic" has enough recent history to find one for as many
         # clinics as possible, capped so the section stays a quick visual
         # scan rather than one thumbnail per clinic in a 100-clinic state.
-        recent_events = _annotate(
+        # Deliberately NOT scoped to recent_events_day - "Latest view" means
+        # the actual latest, not frozen to whatever day someone has the
+        # Recent events table set to below.
+        latest_pool = _annotate(
             database.get_events(state=state, cluster=cluster, limit=200)
         )
         latest_views = []
         seen_clinics = set()
-        for ev in recent_events:
+        for ev in latest_pool:
             cn = ev.get("clinic_name")
             if not ev.get("screenshot_path") or cn in seen_clinics:
                 continue
@@ -646,6 +659,20 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             latest_views.append(ev)
             if len(latest_views) >= 12:
                 break
+
+        # Recent events, one calendar day at a time - the day picker below
+        # the table drives this via since/until epoch bounds, independent
+        # of latest_views above (which is always the true latest regardless
+        # of what day this is set to).
+        recent_events = _annotate(
+            database.get_events(
+                state=state, cluster=cluster,
+                since_epoch=day_start, until_epoch=day_end, limit=200,
+            )
+        )
+        recent_events_days = database.observed_days(limit=30)
+        if recent_events_day.isoformat() not in recent_events_days:
+            recent_events_days.insert(0, recent_events_day.isoformat())
 
         # Clinic-wise status today - the group-level equivalent of a
         # clinic's own 14-day Opening/Closing table. One clinic's history
@@ -750,7 +777,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             medium_cases=medium_cases,
             latest_views=latest_views,
             day_rows=day_rows,
-            recent_events=recent_events[:20],
+            recent_events=recent_events,
+            recent_events_day=recent_events_day.isoformat(),
+            recent_events_days=recent_events_days,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
 
@@ -759,16 +788,18 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     # converter refuses to match at all (a 404, not a wrong match).
     @app.route("/state/<path:state_name>")
     def state_page(state_name: str):
+        day = request.args.get("day") or _today()
         return _cached_page(
-            f"state:{state_name}",
-            lambda: _group_page("State", state_name, state_name, None),
+            f"state:{state_name}:{day}",
+            lambda: _group_page("State", state_name, state_name, None, day),
         )
 
     @app.route("/cluster/<path:cluster_name>")
     def cluster_page(cluster_name: str):
+        day = request.args.get("day") or _today()
         return _cached_page(
-            f"cluster:{cluster_name}",
-            lambda: _group_page("Cluster", cluster_name, None, cluster_name),
+            f"cluster:{cluster_name}:{day}",
+            lambda: _group_page("Cluster", cluster_name, None, cluster_name, day),
         )
 
     @app.route("/incidents")

@@ -682,6 +682,7 @@ class Database:
         state: Optional[str] = None,
         cluster: Optional[str] = None,
         since_epoch: Optional[float] = None,
+        until_epoch: Optional[float] = None,
     ) -> tuple:
         """Shared WHERE-clause building for get_events/count_events."""
         clauses: List[str] = []
@@ -704,6 +705,9 @@ class Database:
         if since_epoch:
             clauses.append("ts_epoch >= ?")
             params.append(since_epoch)
+        if until_epoch:
+            clauses.append("ts_epoch < ?")
+            params.append(until_epoch)
         hide, hide_params = ignored_clause()
         if hide:
             clauses.append(hide)
@@ -718,12 +722,13 @@ class Database:
         state: Optional[str] = None,
         cluster: Optional[str] = None,
         since_epoch: Optional[float] = None,
+        until_epoch: Optional[float] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """Newest first, optionally filtered."""
         clauses, params = self._event_clauses(
-            severity, clinic_name, camera_name, state, cluster, since_epoch
+            severity, clinic_name, camera_name, state, cluster, since_epoch, until_epoch
         )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([int(limit), int(offset)])

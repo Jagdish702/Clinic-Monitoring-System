@@ -381,8 +381,21 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 ).strftime("%Y-%m-%d %H:%M")
         return events
 
-    def _build_clinic_page(clinic_name: str) -> str:
+    def _build_clinic_page(clinic_name: str, day: str) -> str:
         today = datetime.now().date()
+        try:
+            recent_events_day = date.fromisoformat(day)
+        except ValueError:
+            recent_events_day = today
+        # Named distinctly from the "day"/"day_start" locals the
+        # deviations loop below uses for its own per-iteration purpose -
+        # sharing a name with those got silently clobbered here before.
+        recent_events_since = datetime.combine(
+            recent_events_day, datetime.min.time()
+        ).timestamp()
+        recent_events_until = datetime.combine(
+            recent_events_day + timedelta(days=1), datetime.min.time()
+        ).timestamp()
 
         # Camera Availability, "X/Y": Y is the best available proxy for "how
         # many cameras this clinic has" - there is no authoritative total
@@ -439,10 +452,19 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # This clinic's own recent events (its slice of the main feed) -
         # "all the data for this clinic in one place" means pulling it in
         # here rather than sending someone to another page to piece it
-        # together themselves.
+        # together themselves. Kept separate from latest_pool below:
+        # this one is scoped to whatever day the picker under the table
+        # is set to, latest_pool never is.
         recent_events = _annotate(
-            database.get_events(clinic_name=clinic_name, limit=20)
+            database.get_events(
+                clinic_name=clinic_name,
+                since_epoch=recent_events_since, until_epoch=recent_events_until,
+                limit=200,
+            )
         )
+        recent_events_days = database.observed_days(limit=30)
+        if recent_events_day.isoformat() not in recent_events_days:
+            recent_events_days.insert(0, recent_events_day.isoformat())
 
         # Every window's metrics for just this clinic, oldest window last -
         # the "start with the Timelines x Metrics table" view. Scoped to the
@@ -517,11 +539,14 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             database, clinic=clinic_name, severity="Medium", status="open", window="30D"
         )
 
-        # Latest view: the most recent screenshot per camera, from the same
-        # recent-events pull above - already newest-first, so no new query.
+        # Latest view: the most recent screenshot per camera. Its own pull,
+        # deliberately NOT the day-scoped recent_events above - this always
+        # means the true latest, regardless of what day the picker under
+        # the Recent events table is set to.
+        latest_pool = _annotate(database.get_events(clinic_name=clinic_name, limit=20))
         latest_views = []
         seen_cameras = set()
-        for ev in recent_events:
+        for ev in latest_pool:
             cam = ev.get("camera_name")
             if not ev.get("screenshot_path") or cam in seen_cameras:
                 continue
@@ -539,6 +564,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             expected_close=config.EXPECTED_CLOSE,
             deviations=deviations,
             recent_events=recent_events,
+            recent_events_day=recent_events_day.isoformat(),
+            recent_events_days=recent_events_days,
             timeline_metrics=timeline_metrics,
             top_concerns=top_concerns,
             category_pies=category_pies,
@@ -555,8 +582,10 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     # pages linking straight to it.
     @app.route("/clinic/<path:clinic_name>")
     def clinic_page(clinic_name: str):
+        day = request.args.get("day") or _today()
         return _cached_page(
-            f"clinic:{clinic_name}", lambda: _build_clinic_page(clinic_name)
+            f"clinic:{clinic_name}:{day}",
+            lambda: _build_clinic_page(clinic_name, day)
         )
 
     def _group_page(
@@ -576,8 +605,10 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             recent_events_day = date.fromisoformat(day)
         except ValueError:
             recent_events_day = today
-        day_start = datetime.combine(recent_events_day, datetime.min.time()).timestamp()
-        day_end = datetime.combine(
+        recent_events_since = datetime.combine(
+            recent_events_day, datetime.min.time()
+        ).timestamp()
+        recent_events_until = datetime.combine(
             recent_events_day + timedelta(days=1), datetime.min.time()
         ).timestamp()
 
@@ -667,7 +698,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         recent_events = _annotate(
             database.get_events(
                 state=state, cluster=cluster,
-                since_epoch=day_start, until_epoch=day_end, limit=200,
+                since_epoch=recent_events_since, until_epoch=recent_events_until,
+                limit=200,
             )
         )
         recent_events_days = database.observed_days(limit=30)

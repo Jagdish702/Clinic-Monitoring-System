@@ -136,6 +136,11 @@
   .category-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
   .category-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .category-pct{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .thumb{width:64px;height:40px;object-fit:cover;border-radius:6px;display:block}
+  .thumb-empty{width:64px;height:40px;border-radius:6px;background:var(--bg)}
+  .section-head{display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:8px}
 </style>
 </head>
 <body>
@@ -387,15 +392,29 @@
     </div>
 
     <div class="section">
-      <h2>Recent events</h2>
+      <div class="section-head">
+        <h2>Recent events</h2>
+        <select onchange="window.location.href = '?day=' + encodeURIComponent(this.value)">
+          {% for d in recent_events_days %}
+          <option value="{{ d }}" {% if d == recent_events_day %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Camera</th><th>Severity</th><th>Description</th><th>When</th>
+          <th>Evidence</th><th>Camera</th><th>Severity</th><th>Description</th><th>When</th>
         </tr></thead>
         <tbody>
           {% for ev in recent_events %}
           <tr>
+            <td>
+              {% if ev.screenshot_path %}
+              <img class="thumb" src="/screenshots/{{ ev.screenshot_path }}" alt="{{ clinic_name }} evidence">
+              {% else %}
+              <div class="thumb-empty"></div>
+              {% endif %}
+            </td>
             <td>{{ ev.camera_name }}</td>
             <td><span class="pill {{ ev.severity|lower }}">{{ ev.severity }}</span></td>
             <td>{{ ev.description }}</td>
@@ -404,7 +423,7 @@
           {% endfor %}
         </tbody>
       </table>
-      {% if not recent_events %}<p class="empty">No events recorded for this clinic yet.</p>{% endif %}
+      {% if not recent_events %}<p class="empty">No events recorded for this clinic on {{ recent_events_day }}.</p>{% endif %}
       </div>
     </div>
   </main>

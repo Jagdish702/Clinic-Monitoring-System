@@ -144,10 +144,16 @@
   .rank-item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rank-item .metric{font-weight:600;font-variant-numeric:tabular-nums}
 
-  .thumb{width:64px;height:40px;object-fit:cover;border-radius:6px;display:block}
+  .thumb{width:64px;height:40px;object-fit:cover;border-radius:6px;display:block;cursor:zoom-in}
   .thumb-empty{width:64px;height:40px;border-radius:6px;background:var(--bg)}
   .section-head{display:flex;align-items:center;justify-content:space-between;
     flex-wrap:wrap;gap:8px}
+
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;
+    align-items:center;justify-content:center;z-index:1000;cursor:zoom-out;padding:24px}
+  .lightbox[hidden]{display:none}
+  .lightbox img{max-width:100%;max-height:100%;border-radius:8px;
+    box-shadow:0 8px 40px rgba(0,0,0,.5)}
 </style>
 </head>
 <body>
@@ -438,7 +444,8 @@
           <tr class="row-link" onclick="window.location='/clinic/{{ ev.clinic_name | urlencode }}'">
             <td>
               {% if ev.screenshot_path %}
-              <img class="thumb" src="/screenshots/{{ ev.screenshot_path }}" alt="{{ ev.clinic_name }} evidence">
+              <img class="thumb" src="/screenshots/{{ ev.screenshot_path }}" alt="{{ ev.clinic_name }} evidence"
+                   onclick="openLightbox(this.src, event)">
               {% else %}
               <div class="thumb-empty"></div>
               {% endif %}
@@ -457,5 +464,23 @@
     </div>
   </main>
 </div>
+
+<div class="lightbox" id="image-lightbox" hidden onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt="">
+</div>
+<script>
+function openLightbox(src, ev){
+  if (ev) ev.stopPropagation();
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('image-lightbox').hidden = false;
+}
+function closeLightbox(){
+  document.getElementById('image-lightbox').hidden = true;
+  document.getElementById('lightbox-img').src = '';
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeLightbox();
+});
+</script>
 </body>
 </html>

@@ -43,6 +43,14 @@
   .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
   .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
     font-size:12px;color:var(--muted)}
+  .user-badge{padding:10px 8px;border-radius:8px;background:var(--bg);
+    display:flex;flex-direction:column;gap:2px}
+  .user-badge-name{font-size:12px;font-weight:600;color:var(--text)}
+  .user-badge-role{font-size:11px;color:var(--muted)}
+  .user-badge-logout{margin-top:4px;font:500 11px var(--font-ui);padding:4px 8px;
+    border-radius:6px;border:1px solid var(--line);background:var(--white);
+    color:var(--text);cursor:pointer}
+  .user-badge-logout:hover{background:var(--bg)}
 
   .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
   .back{color:var(--muted);font-size:12px}
@@ -79,6 +87,24 @@
 
   .desc{background:var(--white);border-radius:16px;box-shadow:var(--shadow-card);
     padding:16px 20px;font-size:13px;line-height:1.6}
+
+  .status.addressed{background:var(--med-bg);color:var(--med-fg)}
+  .status.closed{background:var(--low-bg);color:var(--low-fg)}
+  .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .actions form{display:inline}
+  .action-btn{font:600 13px var(--font-ui);padding:9px 16px;border-radius:8px;
+    border:1px solid var(--brand);background:var(--brand);color:#fff;cursor:pointer}
+  .action-btn:hover{opacity:.92}
+  .action-btn.secondary{background:var(--white);color:var(--text);border-color:var(--line)}
+  .comments{display:flex;flex-direction:column;gap:12px}
+  .comment{background:var(--white);border-radius:12px;box-shadow:var(--shadow-card);
+    padding:12px 16px}
+  .comment-meta{font-size:11px;color:var(--muted);margin-bottom:4px}
+  .comment-meta b{color:var(--text)}
+  .comment-text{font-size:13px;line-height:1.5}
+  .comment-form textarea{width:100%;font:13px var(--font-ui);padding:10px 12px;
+    border-radius:8px;border:1px solid var(--line);resize:vertical;min-height:64px}
+  .comment-form{display:flex;flex-direction:column;gap:8px}
 </style>
 </head>
 <body>
@@ -95,6 +121,7 @@
       <a class="nav-row" href="/scores">Scores</a>
       <a class="nav-row active" href="/incidents">Incidents</a>
     </div>
+    {% include "_user_badge.html" %}
     <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
   </aside>
 
@@ -105,9 +132,34 @@
       <p class="page-sub">
         <span class="pill {{ incident.severity|lower }}">{{ incident.severity }} ({{ incident.severity_score }})</span>
         <span class="status {{ incident.status }}">{{ 'Open' if incident.status == 'open' else 'Resolved' }}</span>
+        {% if incident.workflow_status %}
+        <span class="status {{ incident.workflow_status }}">{{ incident.workflow_status|title }}{% if incident.workflow_status == 'addressed' and incident.addressed_by %} by {{ incident.addressed_by }}{% elif incident.workflow_status == 'closed' and incident.closed_by %} by {{ incident.closed_by }}{% endif %}</span>
+        {% endif %}
         · {{ incident.category_group }} / {{ incident.category }}
       </p>
     </div>
+
+    {% set u = current_user_ctx() %}
+    {% if u %}
+    <div class="actions">
+      {% if u.role == 'cluster_manager' and not incident.workflow_status %}
+      <form method="post" action="/incidents/{{ incident.id }}/address">
+        <button class="action-btn" type="submit">Mark addressed</button>
+      </form>
+      {% endif %}
+      {% if u.role in ('command_center', 'admin') %}
+        {% if incident.workflow_status != 'closed' %}
+        <form method="post" action="/incidents/{{ incident.id }}/close">
+          <button class="action-btn" type="submit">Close ticket</button>
+        </form>
+        {% else %}
+        <form method="post" action="/incidents/{{ incident.id }}/reopen">
+          <button class="action-btn secondary" type="submit">Re-open</button>
+        </form>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
 
     <div class="cards">
       <div class="stat-card">
@@ -155,6 +207,25 @@
     <div class="section">
       <h2>Latest description</h2>
       <div class="desc">{{ incident.description or 'No description recorded.' }}</div>
+    </div>
+
+    <div class="section">
+      <h2>Comments</h2>
+      <div class="comments">
+        {% for c in comments %}
+        <div class="comment">
+          <div class="comment-meta"><b>{{ c.author_name }}</b> · {{ c.author_role.replace('_', ' ')|title }} · {{ c.created_str }}</div>
+          <div class="comment-text">{{ c.text }}</div>
+        </div>
+        {% endfor %}
+        {% if not comments %}<p class="empty" style="color:var(--muted);font-size:12px">No comments yet.</p>{% endif %}
+      </div>
+      {% if current_user_ctx() %}
+      <form class="comment-form" method="post" action="/incidents/{{ incident.id }}/comment">
+        <textarea name="text" placeholder="Add a comment..." required></textarea>
+        <button class="action-btn secondary" type="submit" style="align-self:flex-start">Reply</button>
+      </form>
+      {% endif %}
     </div>
   </main>
 </div>

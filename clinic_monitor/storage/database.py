@@ -164,6 +164,39 @@ CREATE TABLE IF NOT EXISTS incidents (
 CREATE INDEX IF NOT EXISTS idx_incidents_open
     ON incidents (clinic_name, camera_name, status, first_seen_ts);
 CREATE INDEX IF NOT EXISTS idx_incidents_cluster ON incidents (state, cluster);
+
+-- Login accounts for the role-based dashboard. password_hash only ever holds
+-- a werkzeug hash, never plaintext - see auth.py. state/cluster scope a
+-- state_manager/cluster_manager row to what they're allowed to see; both are
+-- NULL for admin/command_center, who see everything.
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL,
+    email         TEXT    NOT NULL UNIQUE,
+    phone         TEXT,
+    password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL,  -- admin | command_center | state_manager | cluster_manager
+    state         TEXT,
+    cluster       TEXT,
+    created_at    REAL    NOT NULL,
+    updated_at    REAL    NOT NULL
+);
+
+-- The human review thread on an incident - separate from the automated
+-- open/resolved detection in incidents.status (see workflow_status below,
+-- added via _migrate()). Anyone logged in can comment; who may also change
+-- workflow_status is enforced in auth.py, not here.
+CREATE TABLE IF NOT EXISTS incident_comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    author_name TEXT    NOT NULL,
+    author_role TEXT    NOT NULL,
+    text        TEXT    NOT NULL,
+    created_at  REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_incident_comments_incident
+    ON incident_comments (incident_id, created_at);
 """
 
 OBSERVATION_COLUMNS = (
@@ -290,6 +323,14 @@ class Database:
                 "first_screenshot_path": "TEXT",
                 "last_screenshot_path": "TEXT",
                 "unconfirmed_normal_count": "INTEGER DEFAULT 0",
+                # The human review ladder (role-based dashboard) - orthogonal
+                # to status above, which stays purely automated. NULL means
+                # nobody has acted on it yet.
+                "workflow_status": "TEXT",  # NULL | 'addressed' | 'closed'
+                "addressed_by": "TEXT",
+                "addressed_at": "REAL",
+                "closed_by": "TEXT",
+                "closed_at": "REAL",
             },
         }
         for table, columns in wanted.items():
@@ -672,6 +713,131 @@ class Database:
     def acknowledge(self, event_id: int) -> None:
         with self.conn as conn:
             conn.execute("UPDATE events SET acknowledged = 1 WHERE id = ?", (event_id,))
+
+    # -- users (role-based dashboard login) --------------------------------- #
+    def create_user(
+        self,
+        name: str,
+        email: str,
+        password_hash: str,
+        role: str,
+        phone: Optional[str] = None,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+    ) -> int:
+        now = time.time()
+        with self.conn as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (name, email, phone, password_hash, role, "
+                "state, cluster, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, email, phone, password_hash, role, state, cluster, now, now),
+            )
+        return int(cursor.lastrowid)
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT id, name, email, phone, role, state, cluster, created_at, "
+            "updated_at FROM users ORDER BY role, state, cluster, name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_users_from_rows(self, rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Bulk create/update accounts from the Admin CSV upload - one row per
+        manager, each already carrying a hashed password (never plaintext by
+        the time it reaches this method; see auth.py). Matched by email:
+        an existing account is updated in place, a new email creates one.
+        """
+        created = updated = 0
+        now = time.time()
+        with self.conn as conn:
+            for row in rows:
+                existing = conn.execute(
+                    "SELECT id FROM users WHERE email = ?", (row["email"],)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE users SET name=?, phone=?, password_hash=?, "
+                        "role=?, state=?, cluster=?, updated_at=? WHERE id=?",
+                        (
+                            row["name"], row.get("phone"), row["password_hash"],
+                            row["role"], row.get("state"), row.get("cluster"),
+                            now, existing["id"],
+                        ),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "INSERT INTO users (name, email, phone, password_hash, "
+                        "role, state, cluster, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            row["name"], row["email"], row.get("phone"),
+                            row["password_hash"], row["role"], row.get("state"),
+                            row.get("cluster"), now, now,
+                        ),
+                    )
+                    created += 1
+        return {"created": created, "updated": updated}
+
+    # -- incident workflow (human review, separate from status) ------------- #
+    def add_incident_comment(
+        self, incident_id: int, user_id: int, author_name: str,
+        author_role: str, text: str,
+    ) -> int:
+        with self.conn as conn:
+            cursor = conn.execute(
+                "INSERT INTO incident_comments (incident_id, user_id, "
+                "author_name, author_role, text, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (incident_id, user_id, author_name, author_role, text, time.time()),
+            )
+        return int(cursor.lastrowid)
+
+    def list_incident_comments(self, incident_id: int) -> List[Dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM incident_comments WHERE incident_id = ? "
+            "ORDER BY created_at ASC",
+            (incident_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_incident_addressed(self, incident_id: int, by_name: str) -> None:
+        with self.conn as conn:
+            conn.execute(
+                "UPDATE incidents SET workflow_status='addressed', "
+                "addressed_by=?, addressed_at=? WHERE id=?",
+                (by_name, time.time(), incident_id),
+            )
+
+    def close_incident(self, incident_id: int, by_name: str) -> None:
+        with self.conn as conn:
+            conn.execute(
+                "UPDATE incidents SET workflow_status='closed', "
+                "closed_by=?, closed_at=? WHERE id=?",
+                (by_name, time.time(), incident_id),
+            )
+
+    def reopen_incident(self, incident_id: int) -> None:
+        with self.conn as conn:
+            conn.execute(
+                "UPDATE incidents SET workflow_status=NULL, closed_by=NULL, "
+                "closed_at=NULL WHERE id=?",
+                (incident_id,),
+            )
 
     # -- reads -------------------------------------------------------------- #
     @staticmethod

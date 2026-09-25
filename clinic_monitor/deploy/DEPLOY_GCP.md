@@ -178,8 +178,8 @@ sudo adduser "$USER" kvm
 
 ### Reaching the dashboard safely
 
-It binds to **127.0.0.1 deliberately**. It has no login of its own and shows
-clinic footage, so it must never be exposed directly. Tunnel to it:
+It binds to **127.0.0.1 deliberately** and shows clinic footage, so it must
+never be exposed directly. Tunnel to it:
 
 ```bash
 gcloud compute ssh clinic-monitor --zone=asia-south1-a --ssh-flag="-L 8000:localhost:8000"
@@ -192,6 +192,30 @@ assumes - `--ssh-flag` is the one form that works on both backends.)
 
 For team access, put an authenticating proxy in front - Identity-Aware Proxy is
 the native option - rather than opening the port.
+
+### Optional: role-based login (Admin / Command Center / State Manager / Cluster Manager)
+
+Off by default - a VM with none of these set behaves exactly as before, no
+login at all. To turn it on for one VM, set in its `.env`:
+
+```bash
+CM_AUTH_ENABLED=true
+CM_SECRET_KEY=<a random value - e.g. python3 -c "import secrets; print(secrets.token_hex(32))">
+CM_ADMIN_EMAIL=<the first Admin account's email>
+CM_ADMIN_PASSWORD=<the first Admin account's password>
+```
+
+`CM_ADMIN_EMAIL`/`CM_ADMIN_PASSWORD` only seed the very first Admin account,
+on a database with no `users` rows yet - once that account exists, sign in
+as Admin and use **Manage users** to upload the roster CSV (State, Cluster,
+Cluster Manager name/Email/Phone/PW, State Manager name/Email/Phone/PW) and
+create the rest. There is no self-service password change anywhere - Admin
+is the only one who can set or reset a password, by design.
+
+Restart `clinic-dashboard` after changing any of these:
+```bash
+sudo systemctl restart "clinic-dashboard@$USER"
+```
 
 ---
 

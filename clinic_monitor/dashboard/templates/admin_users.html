@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Monitor — Manage users</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
+    --brand:#004172;
+    --high-bg:#ffdbdb; --high-fg:#d82525;
+    --low-bg:#e8fff1;  --low-fg:#00b82e;
+    --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font-ui);}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:flex;align-items:flex-start;min-height:100vh}
+  .sidebar{
+    width:220px;flex:0 0 220px;background:var(--white);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;gap:24px;align-self:stretch;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand p{margin:0;word-break:break-word}
+  .brand .name{font-size:16px;font-weight:600}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .nav-label{
+    font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);margin:0 0 4px 0;padding-left:8px;
+  }
+  .nav-section{display:flex;flex-direction:column;gap:4px}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:13px;color:var(--muted);}
+  a.nav-row:hover{background:var(--bg)}
+  .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
+  .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted)}
+  .user-badge{padding:10px 8px;border-radius:8px;background:var(--bg);
+    display:flex;flex-direction:column;gap:2px}
+  .user-badge-name{font-size:12px;font-weight:600;color:var(--text)}
+  .user-badge-role{font-size:11px;color:var(--muted)}
+  .user-badge-logout{margin-top:4px;font:500 11px var(--font-ui);padding:4px 8px;
+    border-radius:6px;border:1px solid var(--line);background:var(--white);
+    color:var(--text);cursor:pointer}
+  .user-badge-logout:hover{background:var(--bg)}
+
+  .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
+  .page-title{font:600 20px var(--font-ui);margin:0}
+  .page-sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+
+  .section{display:flex;flex-direction:column;gap:12px;background:var(--white);
+    border-radius:16px;box-shadow:var(--shadow-card);padding:20px}
+  .section h2{font:600 15px var(--font-ui);margin:0}
+  .upload-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .upload-row input[type=file]{font-size:12px}
+  .submit{font:600 13px var(--font-ui);padding:9px 16px;border-radius:8px;
+    border:1px solid var(--brand);background:var(--brand);color:#fff;cursor:pointer}
+  .submit:hover{opacity:.92}
+  .hint{color:var(--muted);font-size:12px;margin:0}
+  .error{background:var(--high-bg);color:var(--high-fg);padding:8px 12px;
+    border-radius:8px;font-size:12px}
+  .ok{background:var(--low-bg);color:var(--low-fg);padding:8px 12px;
+    border-radius:8px;font-size:12px}
+
+  .table-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;
+    letter-spacing:.5px}
+  .role-pill{display:inline-flex;padding:2px 8px;border-radius:100px;font-size:11px;
+    background:var(--bg)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <p class="name">CureBay</p>
+      <p class="sub">Clinic Monitor</p>
+    </div>
+    <div class="nav-section">
+      <p class="nav-label">OVERVIEW</p>
+      <a class="nav-row" href="/">Dashboard</a>
+      <a class="nav-row" href="/scores">Scores</a>
+      <a class="nav-row" href="/incidents">Incidents</a>
+      <a class="nav-row active" href="/admin/users">Manage users</a>
+    </div>
+    {% include "_user_badge.html" %}
+    <div class="sidebar-footer">Admin only</div>
+  </aside>
+
+  <main class="main">
+    <div>
+      <p class="page-title">Manage users</p>
+      <p class="page-sub">One account per Cluster/State Manager. Upload a CSV to create or update accounts.</p>
+    </div>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    {% if result %}<div class="ok">{{ result.created }} account(s) created, {{ result.updated }} updated.</div>{% endif %}
+
+    <div class="section">
+      <h2>Upload roster</h2>
+      <p class="hint">Columns: State, Cluster, Cluster Manager name, Cluster Manager Email, Cluster Manager Phone, Cluster Manager PW, State Manager name, State Manager Email, State Manager Phone, State Manager PW. A row with no password in it is skipped entirely - nothing about that account changes, and it's never created from that row.</p>
+      <form class="upload-row" method="post" action="/admin/users/upload" enctype="multipart/form-data">
+        <input type="file" name="csv_file" accept=".csv" required>
+        <button class="submit" type="submit">Upload</button>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2>Accounts ({{ users|length }})</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Scope</th>
+        </tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td>{{ u.name }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ u.phone or '—' }}</td>
+            <td><span class="role-pill">{{ u.role.replace('_', ' ')|title }}</span></td>
+            <td>{{ u.cluster or u.state or '—' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not users %}<tr><td colspan="5" class="hint">No accounts yet.</td></tr>{% endif %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

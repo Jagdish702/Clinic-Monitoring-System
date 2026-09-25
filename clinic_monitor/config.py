@@ -349,6 +349,20 @@ COLLECTOR_HOST = os.getenv("CM_COLLECTOR_HOST", "0.0.0.0")
 COLLECTOR_PORT = int(os.getenv("CM_COLLECTOR_PORT", "8001"))
 
 # --------------------------------------------------------------------------- #
+# Role-based dashboard login. Off by default (AUTH_ENABLED=False) so this
+# ships inert - every route behaves exactly as it does today - until a VM's
+# .env explicitly turns it on. SECRET_KEY signs the session cookie; it is
+# required once AUTH_ENABLED is true (auth.py fails loudly at startup
+# otherwise, the same posture as COLLECTOR_TOKEN above). ADMIN_EMAIL/
+# ADMIN_PASSWORD seed the first Admin account on first run only, since there
+# is no self-registration - see auth.py's bootstrap.
+# --------------------------------------------------------------------------- #
+AUTH_ENABLED = _env_bool("CM_AUTH_ENABLED", False)
+SECRET_KEY = os.getenv("CM_SECRET_KEY", "")
+ADMIN_EMAIL = os.getenv("CM_ADMIN_EMAIL", "")
+ADMIN_PASSWORD = os.getenv("CM_ADMIN_PASSWORD", "")
+
+# --------------------------------------------------------------------------- #
 # Clinic / camera layout
 # --------------------------------------------------------------------------- #
 
@@ -454,3 +468,27 @@ def load_cluster_contacts() -> dict:
     with CLUSTER_CONTACTS_FILE.open("r", encoding="utf-8") as fh:
         raw = json.load(fh)
     return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+CLUSTERS_FILE = BASE_DIR / "clusters.json"
+
+
+def load_clusters() -> dict:
+    """state name -> [cluster names], for resolving a State Manager's scope
+    (does this cluster belong to my state?) in auth.py. See clusters.json -
+    same freshly-read-per-call, no-cache shape as load_cluster_contacts()
+    above."""
+    if not CLUSTERS_FILE.exists():
+        return {}
+    with CLUSTERS_FILE.open("r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+def state_for_cluster(cluster: str) -> Optional[str]:
+    """Which state a cluster belongs to, per clusters.json - None if the
+    cluster isn't listed there."""
+    for state, clusters in load_clusters().items():
+        if cluster in clusters:
+            return state
+    return None

@@ -43,6 +43,14 @@
   .nav-row.active{background:var(--bg);border:1px solid var(--line);color:var(--text);font-weight:500}
   .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
     font-size:12px;color:var(--muted)}
+  .user-badge{padding:10px 8px;border-radius:8px;background:var(--bg);
+    display:flex;flex-direction:column;gap:2px}
+  .user-badge-name{font-size:12px;font-weight:600;color:var(--text)}
+  .user-badge-role{font-size:11px;color:var(--muted)}
+  .user-badge-logout{margin-top:4px;font:500 11px var(--font-ui);padding:4px 8px;
+    border-radius:6px;border:1px solid var(--line);background:var(--white);
+    color:var(--text);cursor:pointer}
+  .user-badge-logout:hover{background:var(--bg)}
 
   .main{flex:1;min-width:0;padding:32px;display:flex;flex-direction:column;gap:24px}
   .page-title{font:600 20px var(--font-ui);margin:0}
@@ -99,6 +107,7 @@
       <a class="nav-row" href="/scores">Scores</a>
       <a class="nav-row active" href="/incidents">Incidents</a>
     </div>
+    {% include "_user_badge.html" %}
     <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>
   </aside>
 

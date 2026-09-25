@@ -19,12 +19,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from flask import (
-    Flask, Response, abort, jsonify, render_template, request,
-    send_from_directory,
+    Flask, Response, abort, jsonify, redirect, render_template, request,
+    send_from_directory, session, url_for,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import auth  # noqa: E402
 import config  # noqa: E402
 import report as reporting  # noqa: E402
 from analysis import incidents as incidents_lib  # noqa: E402
@@ -67,6 +68,25 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     app.config["SCREENSHOT_DIR"] = str(Path(config.SCREENSHOT_DIR).resolve())
     app.config["DB_PATH"] = str(db_path or config.DB_PATH)
     database = Database(Path(app.config["DB_PATH"]))
+    auth.init_auth(app, database)
+
+    def _scope_state_cluster(state: str, cluster: str):
+        """For a logged-in State/Cluster Manager, force the query's state/
+        cluster filter to their own scope, regardless of what was asked for.
+        Forcing just the more specific one (cluster for a cluster_manager,
+        state for a state_manager) is sufficient - state/cluster are ANDed
+        together everywhere downstream, so an additional coarser filter can
+        only narrow a result further, never broaden past what the forced
+        one already pins. A no-op when auth is disabled or the user is
+        Admin/Command Center."""
+        user = auth.current_user(database)
+        if not user or user["role"] in auth.UNRESTRICTED_ROLES:
+            return state, cluster
+        if user["role"] == "state_manager":
+            return user["state"], cluster
+        if user["role"] == "cluster_manager":
+            return state, user["cluster"]
+        return "all", "all"  # unrecognized role - fail closed, not open
 
     def _filters():
         severity = request.args.get("severity", "all")
@@ -77,6 +97,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # literal value to match against.
         state = request.args.get("state", "all")
         cluster = request.args.get("cluster", "all")
+        state, cluster = _scope_state_cluster(state, cluster)
         try:
             limit = min(int(request.args.get("limit", config.DASHBOARD_PAGE_SIZE)), 500)
         except ValueError:
@@ -89,6 +110,27 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             except ValueError:
                 since = None
         return severity, clinic, camera, state, cluster, limit, since
+
+    # -- auth ---------------------------------------------------------------#
+    @app.route("/login", methods=["GET", "POST"])
+    def login_page():
+        error = None
+        if request.method == "POST":
+            email = (request.form.get("email") or "").strip().lower()
+            password = request.form.get("password") or ""
+            user = database.get_user_by_email(email)
+            if user and auth.verify_password(user["password_hash"], password):
+                session.clear()
+                session["user_id"] = user["id"]
+                dest = request.args.get("next") or url_for("index")
+                return redirect(dest)
+            error = "Incorrect email or password."
+        return render_template("login.html", error=error)
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        session.clear()
+        return redirect(url_for("login_page"))
 
     # -- pages ------------------------------------------------------------- #
     @app.route("/")
@@ -165,6 +207,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             window = "Today"
         state = request.args.get("state", "all")
         cluster = request.args.get("cluster", "all")
+        state, cluster = _scope_state_cluster(state, cluster)
 
         # Computed once, ungrouped - the State -> Cluster -> Clinic tree
         # below groups this in Python instead of recomputing scores per
@@ -586,6 +629,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     # pages linking straight to it.
     @app.route("/clinic/<path:clinic_name>")
     def clinic_page(clinic_name: str):
+        user = auth.current_user(database)
+        if user:
+            auth.enforce_scope(database, user, clinic_name=clinic_name)
         day = request.args.get("day") or _today()
         concern_window = request.args.get("window", "30D")
         if concern_window not in scoring.WINDOWS:
@@ -830,6 +876,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     # converter refuses to match at all (a 404, not a wrong match).
     @app.route("/state/<path:state_name>")
     def state_page(state_name: str):
+        user = auth.current_user(database)
+        if user:
+            auth.enforce_scope(database, user, state=state_name)
         day = request.args.get("day") or _today()
         concern_window = request.args.get("window", "30D")
         if concern_window not in scoring.WINDOWS:
@@ -843,6 +892,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
 
     @app.route("/cluster/<path:cluster_name>")
     def cluster_page(cluster_name: str):
+        user = auth.current_user(database)
+        if user:
+            auth.enforce_scope(database, user, cluster=cluster_name)
         day = request.args.get("day") or _today()
         concern_window = request.args.get("window", "30D")
         if concern_window not in scoring.WINDOWS:
@@ -868,6 +920,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         clinic = request.args.get("clinic", "all")
         state = request.args.get("state", "all")
         cluster = request.args.get("cluster", "all")
+        state, cluster = _scope_state_cluster(state, cluster)
         sort = request.args.get("sort", "last_seen")
         if sort not in incidents_lib.SORT_KEYS:
             sort = "last_seen"
@@ -913,10 +966,139 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         row = incidents_lib.get_incident(database, incident_id)
         if row is None:
             abort(404)
+        user = auth.current_user(database)
+        if user:
+            auth.enforce_scope(database, user, clinic_name=row["clinic_name"])
+        comments = database.list_incident_comments(incident_id)
+        for c in comments:
+            c["created_str"] = datetime.fromtimestamp(c["created_at"]).strftime(
+                "%Y-%m-%d %H:%M"
+            )
         return render_template(
             "incident_detail.html",
             incident=row,
+            comments=comments,
             refresh=config.DASHBOARD_REFRESH_SEC,
+        )
+
+    @app.route("/incidents/<int:incident_id>/comment", methods=["POST"])
+    @auth.login_required(lambda: database)
+    def incident_add_comment(incident_id: int):
+        row = incidents_lib.get_incident(database, incident_id)
+        if row is None:
+            abort(404)
+        user = auth.current_user(database)
+        auth.enforce_scope(database, user, clinic_name=row["clinic_name"])
+        text = (request.form.get("text") or "").strip()
+        if text:
+            database.add_incident_comment(
+                incident_id, user["id"], user["name"], user["role"], text
+            )
+        return redirect(url_for("incident_detail", incident_id=incident_id))
+
+    @app.route("/incidents/<int:incident_id>/address", methods=["POST"])
+    @auth.role_required("cluster_manager", database_getter=lambda: database)
+    def incident_mark_addressed(incident_id: int):
+        row = incidents_lib.get_incident(database, incident_id)
+        if row is None:
+            abort(404)
+        user = auth.current_user(database)
+        auth.enforce_scope(database, user, clinic_name=row["clinic_name"])
+        database.mark_incident_addressed(incident_id, user["name"])
+        return redirect(url_for("incident_detail", incident_id=incident_id))
+
+    @app.route("/incidents/<int:incident_id>/close", methods=["POST"])
+    @auth.role_required("command_center", "admin", database_getter=lambda: database)
+    def incident_close(incident_id: int):
+        row = incidents_lib.get_incident(database, incident_id)
+        if row is None:
+            abort(404)
+        user = auth.current_user(database)
+        database.close_incident(incident_id, user["name"])
+        return redirect(url_for("incident_detail", incident_id=incident_id))
+
+    @app.route("/incidents/<int:incident_id>/reopen", methods=["POST"])
+    @auth.role_required("command_center", "admin", database_getter=lambda: database)
+    def incident_reopen(incident_id: int):
+        row = incidents_lib.get_incident(database, incident_id)
+        if row is None:
+            abort(404)
+        database.reopen_incident(incident_id)
+        return redirect(url_for("incident_detail", incident_id=incident_id))
+
+    # -- admin: user provisioning -------------------------------------------#
+    @app.route("/admin/users")
+    @auth.role_required("admin", database_getter=lambda: database)
+    def admin_users_page():
+        return render_template(
+            "admin_users.html", users=database.list_users(), result=None,
+        )
+
+    @app.route("/admin/users/upload", methods=["POST"])
+    @auth.role_required("admin", database_getter=lambda: database)
+    def admin_users_upload():
+        """
+        Admin's CSV: State, Cluster, Cluster Manager name/Email/Phone/PW,
+        State Manager name/Email/Phone/PW - one row per cluster, so a
+        state's own manager repeats across every one of its clusters' rows
+        (harmless: upsert_users_from_rows matches by email, so a repeated
+        row just re-applies the same account). A password cell is required
+        to touch that row's account at all - a blank one means "don't
+        create or change this account from this row," never "blank the
+        existing password."  The plaintext value from the upload is hashed
+        immediately below and never stored or logged anywhere.
+        """
+        file = request.files.get("csv_file")
+        error = None
+        result = None
+        if not file or not file.filename:
+            error = "Choose a CSV file first."
+        else:
+            text = file.stream.read().decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+            # Header lookup tolerant of stray whitespace, exact casing not
+            # required beyond matching the documented column names.
+            def cell(row: dict, key: str) -> str:
+                for k, v in row.items():
+                    if k and k.strip() == key:
+                        return (v or "").strip()
+                return ""
+
+            rows: List[Dict[str, Any]] = []
+            for r in reader:
+                state = cell(r, "State")
+                cluster = cell(r, "Cluster")
+                cm_email = cell(r, "Cluster Manager Email").lower()
+                cm_pw = cell(r, "Cluster Manager PW")
+                if cm_email and cm_pw:
+                    rows.append({
+                        "name": cell(r, "Cluster Manager name") or cm_email,
+                        "email": cm_email,
+                        "phone": cell(r, "Cluster Manager Phone"),
+                        "password_hash": auth.hash_password(cm_pw),
+                        "role": "cluster_manager",
+                        "state": state,
+                        "cluster": cluster,
+                    })
+                sm_email = cell(r, "State Manager Email").lower()
+                sm_pw = cell(r, "State Manager PW")
+                if sm_email and sm_pw:
+                    rows.append({
+                        "name": cell(r, "State Manager name") or sm_email,
+                        "email": sm_email,
+                        "phone": cell(r, "State Manager Phone"),
+                        "password_hash": auth.hash_password(sm_pw),
+                        "role": "state_manager",
+                        "state": state,
+                        "cluster": None,
+                    })
+            if not rows:
+                error = "No usable rows found - check the column headers match exactly."
+            else:
+                result = database.upsert_users_from_rows(rows)
+        return render_template(
+            "admin_users.html", users=database.list_users(),
+            result=result, error=error,
         )
 
     @app.route("/api/events")

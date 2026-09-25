@@ -23,8 +23,8 @@
   .card{width:100%;max-width:360px;background:var(--white);border-radius:16px;
     box-shadow:var(--shadow-card);padding:32px 28px;display:flex;flex-direction:column;gap:20px}
   .brand{text-align:center}
-  .brand .name{font-size:18px;font-weight:600;margin:0}
-  .brand .sub{font-size:12px;color:var(--muted);margin:2px 0 0}
+  .brand-logo{height:32px;width:auto}
+  .brand .sub{font-size:12px;color:var(--muted);margin:8px 0 0}
   .field{display:flex;flex-direction:column;gap:6px}
   .field label{font-size:12px;color:var(--muted)}
   .field input{font:500 14px var(--font-ui);padding:10px 12px;border-radius:8px;
@@ -41,7 +41,7 @@
 <body>
   <form class="card" method="post">
     <div class="brand">
-      <p class="name">CureBay</p>
+      <img class="brand-logo" src="{{ url_for('static', filename='img/curebay-logo.png') }}" alt="CureBay">
       <p class="sub">Clinic Monitor</p>
     </div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}

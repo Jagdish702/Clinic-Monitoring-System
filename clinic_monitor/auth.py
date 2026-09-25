@@ -77,14 +77,20 @@ def init_auth(app, database) -> None:
         app.secret_key = config.SECRET_KEY
         bootstrap_admin(database)
 
-    # Paths reachable without a session, even when auth is enabled.
-    open_paths = {"/login", "/screenshots"}
-
     @app.before_request
     def _require_login():
         if not config.AUTH_ENABLED:
             return None
-        if request.path == "/login" or request.path.startswith("/screenshots/"):
+        # Reachable without a session even when auth is enabled: the login
+        # page itself, its own static assets (the logo above all - the
+        # login page cannot show a logo it isn't allowed to fetch), and
+        # screenshots (embedded directly in escalation emails, which have
+        # no session to send).
+        if (
+            request.path == "/login"
+            or request.path.startswith("/static/")
+            or request.path.startswith("/screenshots/")
+        ):
             return None
         user = current_user(database)
         if user is None:

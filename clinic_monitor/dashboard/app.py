@@ -184,6 +184,13 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         clusters = (
             database.group_counts("cluster", state=state) if state != "all" else []
         )
+        if scope_user and scope_user["role"] == "cluster_manager":
+            # A Cluster Manager's sidebar shows only their own cluster(s) -
+            # sibling clusters in the same state (and their alert counts)
+            # are exactly what this role must not see, per enforce_scope()'s
+            # own rule that a bare state-level view is outside their scope.
+            own_clusters = auth.user_clusters(scope_user)
+            clusters = [c for c in clusters if c["value"] in own_clusters]
         clinics = database.group_counts(
             "clinic_name",
             state=None if state == "all" else state,

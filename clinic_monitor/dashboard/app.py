@@ -85,7 +85,18 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         if user["role"] == "state_manager":
             return user["state"], cluster
         if user["role"] == "cluster_manager":
-            return state, user["cluster"]
+            # user["cluster"] can be a comma-separated list (a manager
+            # covering more than one cluster - see auth.user_clusters()).
+            # If the request named one of the user's own clusters, honor
+            # it (so ?cluster=Bhubaneswar actually switches to it); a bare
+            # "all"/unset request, or a cluster outside their set, falls
+            # back to the first one rather than passing the raw
+            # comma-joined string down to a query that only does exact
+            # match and would silently return nothing for everyone.
+            own = sorted(auth.user_clusters(user))
+            if cluster in own:
+                return state, cluster
+            return state, (own[0] if own else "all")
         return "all", "all"  # unrecognized role - fail closed, not open
 
     def _filters():

@@ -2,7 +2,7 @@
 {% if u %}
 <div class="user-badge">
   <div class="user-badge-name">{{ u.name }}</div>
-  <div class="user-badge-role">{{ u.role.replace('_', ' ')|title }}{% if u.cluster %} · {{ u.cluster }}{% elif u.state %} · {{ u.state }}{% endif %}</div>
+  <div class="user-badge-role">{{ u.role.replace('_', ' ')|title }}{% if u.cluster %} · {{ u.cluster.replace(',', ', ') }}{% elif u.state %} · {{ u.state }}{% endif %}</div>
   <form method="post" action="/logout"><button type="submit" class="user-badge-logout">Log out</button></form>
 </div>
 {% endif %}

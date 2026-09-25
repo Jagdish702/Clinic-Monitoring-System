@@ -152,6 +152,20 @@ def role_required(*roles: str, database_getter: Callable[[], Any]) -> Callable:
     return decorator
 
 
+def user_clusters(user: Dict[str, Any]) -> set:
+    """
+    A user's cluster(s) as a set - almost always one, but users.cluster can
+    hold a comma-separated list for the rare manager who covers more than
+    one (e.g. one COM contact shared across two clusters). Same shape as
+    cluster_contacts.json's own comma-separated multi-email entries, not a
+    new convention.
+    """
+    raw = (user.get("cluster") or "").strip()
+    if not raw:
+        return set()
+    return {c.strip() for c in raw.split(",") if c.strip()}
+
+
 def _resolve_clinic_location(database, clinic_name: str) -> tuple:
     """One clinic's (state, cluster) - same query as dashboard/app.py's own
     _clinic_location(), duplicated here rather than imported since that one
@@ -207,7 +221,7 @@ def enforce_scope(
             # A bare state-level URL is never within a Cluster Manager's own
             # scope, regardless of which state it is.
             abort(403)
-        if target_cluster != user["cluster"]:
+        if target_cluster not in user_clusters(user):
             abort(403)
         return
 

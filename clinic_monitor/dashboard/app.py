@@ -381,7 +381,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 ).strftime("%Y-%m-%d %H:%M")
         return events
 
-    def _build_clinic_page(clinic_name: str, day: str) -> str:
+    def _build_clinic_page(clinic_name: str, day: str, concern_window: str) -> str:
         today = datetime.now().date()
         try:
             recent_events_day = date.fromisoformat(day)
@@ -533,10 +533,12 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             for w in scoring.WINDOWS
         ]
         high_cases = incidents_lib.list_incidents(
-            database, clinic=clinic_name, severity="High", status="open", window="30D"
+            database, clinic=clinic_name, severity="High", status="open",
+            window=concern_window,
         )
         medium_cases = incidents_lib.list_incidents(
-            database, clinic=clinic_name, severity="Medium", status="open", window="30D"
+            database, clinic=clinic_name, severity="Medium", status="open",
+            window=concern_window,
         )
 
         # Latest view: the most recent screenshot per camera. Its own pull,
@@ -571,6 +573,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             category_pies=category_pies,
             high_cases=high_cases,
             medium_cases=medium_cases,
+            concern_window=concern_window,
+            concern_windows=list(scoring.WINDOWS.keys()),
             latest_views=latest_views,
             refresh=config.DASHBOARD_REFRESH_SEC,
         )
@@ -583,13 +587,17 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     @app.route("/clinic/<path:clinic_name>")
     def clinic_page(clinic_name: str):
         day = request.args.get("day") or _today()
+        concern_window = request.args.get("window", "30D")
+        if concern_window not in scoring.WINDOWS:
+            concern_window = "30D"
         return _cached_page(
-            f"clinic:{clinic_name}:{day}",
-            lambda: _build_clinic_page(clinic_name, day)
+            f"clinic:{clinic_name}:{day}:{concern_window}",
+            lambda: _build_clinic_page(clinic_name, day, concern_window)
         )
 
     def _group_page(
         level: str, name: str, state: Optional[str], cluster: Optional[str], day: str,
+        concern_window: str,
     ):
         """
         Shared by /state/<name> and /cluster/<name> - the same sections a
@@ -663,11 +671,11 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # Unresolved only - see clinic_page()'s comment on the same choice.
         high_cases = incidents_lib.list_incidents(
             database, state=state, cluster=cluster, severity="High",
-            status="open", window="30D",
+            status="open", window=concern_window,
         )
         medium_cases = incidents_lib.list_incidents(
             database, state=state, cluster=cluster, severity="Medium",
-            status="open", window="30D",
+            status="open", window=concern_window,
         )
 
         # A generous pull (not just the 12 shown below) so "one screenshot
@@ -807,6 +815,8 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             category_pies=category_pies,
             high_cases=high_cases,
             medium_cases=medium_cases,
+            concern_window=concern_window,
+            concern_windows=list(scoring.WINDOWS.keys()),
             latest_views=latest_views,
             day_rows=day_rows,
             recent_events=recent_events,
@@ -821,17 +831,27 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
     @app.route("/state/<path:state_name>")
     def state_page(state_name: str):
         day = request.args.get("day") or _today()
+        concern_window = request.args.get("window", "30D")
+        if concern_window not in scoring.WINDOWS:
+            concern_window = "30D"
         return _cached_page(
-            f"state:{state_name}:{day}",
-            lambda: _group_page("State", state_name, state_name, None, day),
+            f"state:{state_name}:{day}:{concern_window}",
+            lambda: _group_page(
+                "State", state_name, state_name, None, day, concern_window
+            ),
         )
 
     @app.route("/cluster/<path:cluster_name>")
     def cluster_page(cluster_name: str):
         day = request.args.get("day") or _today()
+        concern_window = request.args.get("window", "30D")
+        if concern_window not in scoring.WINDOWS:
+            concern_window = "30D"
         return _cached_page(
-            f"cluster:{cluster_name}:{day}",
-            lambda: _group_page("Cluster", cluster_name, None, cluster_name, day),
+            f"cluster:{cluster_name}:{day}:{concern_window}",
+            lambda: _group_page(
+                "Cluster", cluster_name, None, cluster_name, day, concern_window
+            ),
         )
 
     @app.route("/incidents")

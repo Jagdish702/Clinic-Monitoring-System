@@ -299,7 +299,7 @@
     {% if level == 'Cluster' %}
     <div class="section">
       <h2>Most problematic clinics</h2>
-      <p class="hint">Left: lowest overall score today. Right: most High + Medium incidents over the last 30 days.</p>
+      <p class="hint">Left: lowest overall score today. Right: most High + Medium incidents for {{ concern_window }} (same filter as the concern-case tables below).</p>
       <div class="rank-row">
         <div class="rank-list">
           {% for c in most_problematic_by_score %}
@@ -319,7 +319,7 @@
             <span class="metric">{{ c.count }}</span>
           </a>
           {% endfor %}
-          {% if not most_problematic_by_incidents %}<p class="empty">No High/Medium incidents in the last 30 days.</p>{% endif %}
+          {% if not most_problematic_by_incidents %}<p class="empty">No High/Medium incidents for {{ concern_window }}.</p>{% endif %}
         </div>
       </div>
     </div>
@@ -354,7 +354,14 @@
     </div>
 
     <div class="section">
-      <h2>High concern cases — last 30 days</h2>
+      <div class="section-head">
+        <h2>High concern cases</h2>
+        <select onchange="setParam('window', this.value)">
+          {% for w in concern_windows %}
+          <option value="{{ w }}" {% if w == concern_window %}selected{% endif %}>{{ w }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
@@ -374,12 +381,19 @@
           {% endfor %}
         </tbody>
       </table>
-      {% if not high_cases %}<p class="empty">No High-severity cases in the last 30 days.</p>{% endif %}
+      {% if not high_cases %}<p class="empty">No High-severity cases for {{ concern_window }}.</p>{% endif %}
       </div>
     </div>
 
     <div class="section">
-      <h2>Medium concern cases — last 30 days</h2>
+      <div class="section-head">
+        <h2>Medium concern cases</h2>
+        <select onchange="setParam('window', this.value)">
+          {% for w in concern_windows %}
+          <option value="{{ w }}" {% if w == concern_window %}selected{% endif %}>{{ w }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
@@ -399,7 +413,7 @@
           {% endfor %}
         </tbody>
       </table>
-      {% if not medium_cases %}<p class="empty">No Medium-severity cases in the last 30 days.</p>{% endif %}
+      {% if not medium_cases %}<p class="empty">No Medium-severity cases for {{ concern_window }}.</p>{% endif %}
       </div>
     </div>
 
@@ -428,7 +442,7 @@
     <div class="section">
       <div class="section-head">
         <h2>Recent events</h2>
-        <select onchange="window.location.href = '?day=' + encodeURIComponent(this.value)">
+        <select onchange="setParam('day', this.value)">
           {% for d in recent_events_days %}
           <option value="{{ d }}" {% if d == recent_events_day %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
@@ -469,6 +483,11 @@
   <img id="lightbox-img" src="" alt="">
 </div>
 <script>
+function setParam(key, value){
+  const url = new URL(window.location.href);
+  url.searchParams.set(key, value);
+  window.location.href = url.toString();
+}
 function openLightbox(src, ev){
   if (ev) ev.stopPropagation();
   document.getElementById('lightbox-img').src = src;

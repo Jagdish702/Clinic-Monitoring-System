@@ -635,15 +635,25 @@ class Database:
         periods.sort(key=lambda p: (-p["minutes"], p["clinic_name"]))
         return periods
 
-    def clinic_status_summary(self, day: str) -> Dict[str, Any]:
+    def clinic_status_summary(
+        self, day: str, state: Optional[str] = None, cluster: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Per-clinic totals for the day: checks, failures, current state."""
+        clauses = ["day = ?"]
+        params: List[Any] = [day]
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
         rows = self.conn.execute(
             "SELECT clinic_name,"
             " COUNT(*) AS checks,"
             " SUM(CASE WHEN status='offline' THEN 1 ELSE 0 END) AS failures,"
             " MAX(ts_epoch) AS last_epoch"
-            " FROM clinic_status WHERE day = ? GROUP BY clinic_name",
-            (day,),
+            f" FROM clinic_status WHERE {' AND '.join(clauses)} GROUP BY clinic_name",
+            params,
         ).fetchall()
         summary = {}
         for row in rows:
@@ -933,13 +943,24 @@ class Database:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def counts_by_severity(self, since_epoch: Optional[float] = None) -> Dict[str, int]:
+    def counts_by_severity(
+        self,
+        since_epoch: Optional[float] = None,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+    ) -> Dict[str, int]:
         sql = "SELECT severity, COUNT(*) AS n FROM events"
         clauses: List[str] = []
         params: List[Any] = []
         if since_epoch:
             clauses.append("ts_epoch >= ?")
             params.append(since_epoch)
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
         hide, hide_params = ignored_clause()
         if hide:
             clauses.append(hide)
@@ -991,28 +1012,42 @@ class Database:
         ).fetchall()
         return [{"value": r["v"], "count": r["n"]} for r in rows if r["v"]]
 
-    def dashboard_summary(self, day: str) -> Dict[str, Any]:
+    def dashboard_summary(
+        self, day: str, state: Optional[str] = None, cluster: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Real numbers for the dashboard's stat-card row: how many clinics and
         cameras answered today, how many alerts fired today, and today's
         average model confidence. Every number here comes from data actually
         written today - a quiet day before any patrol has run reads as zero
-        clinics checked, not a fabricated "all clear".
+        clinics checked, not a fabricated "all clear". state/cluster narrow
+        this to one scope (a State/Cluster Manager's own login) - left
+        unset, every clinic in the fleet, exactly as before this existed.
         """
-        status = self.clinic_status_summary(day)
+        status = self.clinic_status_summary(day, state=state, cluster=cluster)
         clinics_total = len(status)
         clinics_offline = sum(1 for s in status.values() if s["current"] == "offline")
 
         hide, hide_params = ignored_clause()
+        obs_clauses = ["day = ?"]
+        obs_params: List[Any] = [day]
+        if state:
+            obs_clauses.append("state = ?")
+            obs_params.append(state)
+        if cluster:
+            obs_clauses.append("cluster = ?")
+            obs_params.append(cluster)
+        if hide:
+            obs_clauses.append(hide)
+            obs_params.extend(hide_params)
         cam_rows = self.conn.execute(
             "SELECT clinic_name, camera_name,"
             " COUNT(*) AS checks,"
             " SUM(CASE WHEN health_status IN ('no_signal','frozen','obstructed')"
             "     THEN 1 ELSE 0 END) AS bad"
-            " FROM observations WHERE day = ?"
-            + (f" AND {hide}" if hide else "")
-            + " GROUP BY clinic_name, camera_name",
-            (day, *hide_params),
+            f" FROM observations WHERE {' AND '.join(obs_clauses)}"
+            " GROUP BY clinic_name, camera_name",
+            obs_params,
         ).fetchall()
         cameras_total = len(cam_rows)
         cameras_inactive = sum(
@@ -1023,6 +1058,12 @@ class Database:
         day_end = day_start + 86400
         clauses = ["ts_epoch >= ?", "ts_epoch < ?"]
         params: List[Any] = [day_start, day_end]
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
         if hide:
             clauses.append(hide)
             params.extend(hide_params)

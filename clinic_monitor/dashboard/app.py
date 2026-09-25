@@ -170,6 +170,17 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # anywhere, and the template hides the whole state/cluster row in
         # that case - not a partial, confusing hierarchy with one entry.
         states = database.group_counts("state")
+        scope_user = auth.current_user(database)
+        if scope_user and scope_user["role"] not in auth.UNRESTRICTED_ROLES:
+            # A State/Cluster Manager never sees another state in the sidebar
+            # tree, regardless of the role's own state/cluster value - this
+            # is the nav-tree half of enforce_scope()'s access control, not
+            # a duplicate of it (enforce_scope only guards page access).
+            own_state = scope_user["state"] if scope_user["role"] == "state_manager" else (
+                config.state_for_cluster(sorted(auth.user_clusters(scope_user))[0])
+                if auth.user_clusters(scope_user) else None
+            )
+            states = [s for s in states if s["value"] == own_state] if own_state else []
         clusters = (
             database.group_counts("cluster", state=state) if state != "all" else []
         )
@@ -180,15 +191,18 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         )
 
         day = _today()
-        summary = database.dashboard_summary(day)
+        scoped_state = None if state == "all" else state
+        scoped_cluster = None if cluster == "all" else cluster
+        summary = database.dashboard_summary(day, state=scoped_state, cluster=scoped_cluster)
         # Opened/closed/offline (report.daily_summary()'s own three-way
         # status, not clinics_online/offline above which is about device
-        # connectivity, not whether staff were ever seen) - fleet-wide, no
-        # state/cluster filter, since this is the main dashboard's own
-        # stat card. Computed once per real page load (index() isn't on
+        # connectivity, not whether staff were ever seen) - scoped the same
+        # way as dashboard_summary() just above it (fleet-wide for an
+        # unrestricted role/no filter picked, narrowed to state/cluster
+        # otherwise). Computed once per real page load (index() isn't on
         # the 5s auto-refresh poll - only /api/events is), same cost class
         # as dashboard_summary() just above it.
-        day_rows = reporting.daily_summary(day, db=database)
+        day_rows = reporting.daily_summary(day, db=database, state=scoped_state, cluster=scoped_cluster)
         summary["clinics_opened_today"] = sum(1 for r in day_rows if r["status"] == "opened")
         summary["clinics_closed_today"] = sum(1 for r in day_rows if r["status"] == "closed")
         summary["clinics_checked_today"] = len(day_rows)
@@ -197,7 +211,7 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             "index.html",
             events=events,
             total_matching=total_matching,
-            counts=database.counts_by_severity(),
+            counts=database.counts_by_severity(state=scoped_state, cluster=scoped_cluster),
             summary=summary,
             states=states,
             clusters=clusters,

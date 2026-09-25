@@ -283,6 +283,9 @@
         <span>Offline Clinics</span>
         <span id="sidebar-offline-count" class="dot high" style="width:auto;height:auto;border-radius:0;background:none;color:var(--high-fg);font-size:12px"></span>
       </a>
+      {% if current_user_ctx() and current_user_ctx().role == 'admin' %}
+      <a class="nav-row" href="/admin/users">Manage users</a>
+      {% endif %}
     </div>
 
     <div class="nav-section">

@@ -120,6 +120,9 @@
       <a class="nav-row" href="/">Dashboard</a>
       <a class="nav-row" href="/scores">Scores</a>
       <a class="nav-row active" href="/incidents">Incidents</a>
+      {% if current_user_ctx() and current_user_ctx().role == 'admin' %}
+      <a class="nav-row" href="/admin/users">Manage users</a>
+      {% endif %}
     </div>
     {% include "_user_badge.html" %}
     <div class="sidebar-footer">auto-refreshing every {{ refresh }}s</div>

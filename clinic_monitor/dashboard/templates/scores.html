@@ -151,6 +151,9 @@
       <a class="nav-row" href="/">Dashboard</a>
       <a class="nav-row active" href="/scores">Scores</a>
       <a class="nav-row" href="/incidents">Incidents</a>
+      {% if current_user_ctx() and current_user_ctx().role == 'admin' %}
+      <a class="nav-row" href="/admin/users">Manage users</a>
+      {% endif %}
     </div>
 
     {% if states %}

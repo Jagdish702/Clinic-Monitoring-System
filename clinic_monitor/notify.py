@@ -165,7 +165,7 @@ def send_teams_message(
             card_body.append({
                 "type": "Image",
                 "url": f"data:image/jpeg;base64,{image_b64}",
-                "size": "Large",
+                "size": "Stretch",
                 "altText": "evidence screenshot",
             })
         except OSError as exc:

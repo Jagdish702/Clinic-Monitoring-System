@@ -791,10 +791,10 @@ let clinicStatusDay = "";
 
 const EXPECTED_OPEN = "{{ expected_open }}";
 
-// Up to expected open: On Time. Then 1-15 min late: Half an hour late,
-// 16-30 min late: One hour late, and from 31 min late on, every further
-// 30-minute block adds another half hour to the label (31-60 -> 1.5
-// hours late, 61-90 -> 2 hours late, 91-120 -> 2.5 hours late, ...).
+// The actual elapsed delay, not a rounded-up bucket - "50 min late" for a
+// 50-minute delay, never "1.5 hours late" for it (the old half-hour-bucket
+// scheme rounded any 31-60 min delay up to the same "1.5 hours" label,
+// which overstated a 50-minute delay by 40 minutes).
 function latenessLabel(openTime){
   if (!openTime) return "";
   const [oh, om] = openTime.split(":").map(Number);
@@ -802,11 +802,11 @@ function latenessLabel(openTime){
   if ([oh, om, eh, em].some(Number.isNaN)) return "";
   const minutesLate = (oh * 60 + om) - (eh * 60 + em);
   if (minutesLate <= 0) return "On Time";
-  if (minutesLate <= 15) return "Half an hour late";
-  if (minutesLate <= 30) return "One hour late";
-  const hours = 1 + 0.5 * Math.ceil((minutesLate - 30) / 30);
-  const hoursStr = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
-  return `${hoursStr} hours late`;
+  const hrs = Math.floor(minutesLate / 60);
+  const mins = minutesLate % 60;
+  if (hrs === 0) return `${mins} min late`;
+  if (mins === 0) return `${hrs} hr late`;
+  return `${hrs} hr ${mins} min late`;
 }
 
 function statusGroup(rows, timeLabel, timeKey, showLateness){

@@ -15,6 +15,8 @@
     --med-bg:#fff3d7;  --med-fg:#d29300;
     --low-bg:#e8fff1;  --low-fg:#00b82e;
     --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+    --shadow-feed: 0 4px 6px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.16);
+    --shadow-btn: 0 2px 2px rgba(0,65,114,.08);
     --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
     --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
   }
@@ -157,6 +159,56 @@
   .lightbox[hidden]{display:none}
   .lightbox img{max-width:100%;max-height:100%;border-radius:8px;
     box-shadow:0 8px 40px rgba(0,0,0,.5)}
+
+  /* recent events - same card design as the dashboard's Live Feed. Scoped
+     under .feed-card (not bare .cards/.thumb/.chip/.pill) so it can't
+     collide with this page's own use of those class names elsewhere
+     (the stat-card row, concern-filter chips, incident-severity pills,
+     table thumbnails). */
+  .feed-cards{display:flex;flex-direction:column;gap:12px}
+  .feed-card{
+    display:flex;align-items:center;gap:8px;background:var(--white);border-radius:24px;
+    box-shadow:var(--shadow-feed);padding:8px;
+  }
+  .feed-card .thumb{
+    width:180px;height:100%;min-height:120px;align-self:stretch;border-radius:16px;
+    border:1px solid var(--line);object-fit:cover;background:var(--bg);flex:0 0 auto;
+    cursor:zoom-in;
+  }
+  .feed-card .thumb-empty{
+    width:180px;min-height:120px;align-self:stretch;border-radius:16px;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;
+    text-align:center;flex:0 0 auto;
+  }
+  .feed-card .content{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;padding:12px}
+  .feed-card .meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .feed-card .dotsep{color:var(--muted);font-size:12px}
+  .feed-card .camera{font:700 16px var(--font-body);color:var(--text)}
+  .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
+  .feed-card .chip{
+    display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;
+    border-radius:8px;font:500 12px var(--font-body);letter-spacing:.3px;white-space:nowrap;
+  }
+  .feed-card .chip.high{background:var(--high-bg);color:var(--high-fg)}
+  .feed-card .chip.medium{background:var(--med-bg);color:var(--med-fg)}
+  .feed-card .chip.low{background:var(--low-bg);color:var(--low-fg)}
+  .feed-card .reason{font:500 12px var(--font-body);margin:0}
+  .feed-card .reason.high{color:var(--high-fg)}
+  .feed-card .reason.medium{color:var(--med-fg)}
+  .feed-card .reason.low{color:var(--muted)}
+  .feed-card .subtle{font:500 12px var(--font-body);color:var(--muted);margin:0}
+  .feed-card .view-btn{
+    flex:0 0 auto;height:48px;padding:0 16px;border-radius:16px;box-shadow:var(--shadow-btn);
+    display:flex;align-items:center;justify-content:center;font:500 15px var(--font-body);color:var(--brand);
+    background:var(--white);border:1px solid var(--line);cursor:pointer;text-decoration:none;
+  }
+  .feed-card .view-btn[aria-disabled="true"]{opacity:.4;cursor:default}
+
+  @media (max-width: 900px){
+    .feed-card{flex-direction:column;align-items:stretch}
+    .feed-card .thumb,.feed-card .thumb-empty{width:100%;height:192px;min-height:0}
+    .feed-card .view-btn{width:100%}
+  }
 </style>
 </head>
 <body>
@@ -434,32 +486,39 @@
           {% endfor %}
         </select>
       </div>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Evidence</th><th>Camera</th><th>Severity</th><th>Description</th><th>When</th>
-        </tr></thead>
-        <tbody>
-          {% for ev in recent_events %}
-          <tr>
-            <td>
-              {% if ev.screenshot_path %}
-              <img class="thumb" src="/screenshots/{{ ev.screenshot_path }}" alt="{{ clinic_name }} evidence"
-                   onclick="openLightbox(this.src, event)">
-              {% else %}
-              <div class="thumb-empty"></div>
-              {% endif %}
-            </td>
-            <td>{{ ev.camera_name }}</td>
-            <td><span class="pill {{ ev.severity|lower }}">{{ ev.severity }}</span></td>
-            <td>{{ ev.description }}</td>
-            <td>{{ ev.timestamp_display or ev.timestamp }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if not recent_events %}<p class="empty">No events recorded for this clinic on {{ recent_events_day }}.</p>{% endif %}
+      <div class="feed-cards">
+        {% for ev in recent_events %}
+        <article class="feed-card">
+          {% if ev.screenshot_path %}
+          <img class="thumb" src="/screenshots/{{ ev.screenshot_path }}" alt="{{ clinic_name }} evidence"
+               onclick="openLightbox(this.src, event)">
+          {% else %}
+          <div class="thumb-empty">No<br>screenshot</div>
+          {% endif %}
+          <div class="content">
+            <div class="meta-row">
+              <span class="chip {{ ev.severity|lower }}">{{ ev.severity }}</span>
+              <span class="dotsep">&bull;</span>
+              <span class="camera">{{ ev.camera_name }}</span>
+            </div>
+            <p class="desc">{{ ev.description }}</p>
+            {% if ev.reason %}<p class="reason {{ ev.severity|lower }}">Why: {{ ev.reason }}</p>{% endif %}
+            <p class="subtle">
+              {%- if ev.confidence is not none %}Conf: {{ (ev.confidence * 100)|round|int }}% &middot; {% endif -%}
+              {%- if ev.clinic_status %}Status: {{ ev.clinic_status }} &middot; {% endif -%}
+              {%- if ev.person_count %}People: {{ ev.person_count }} &middot; {% endif -%}
+              {{ ev.timestamp_display or ev.timestamp }}
+            </p>
+          </div>
+          {% if ev.screenshot_path %}
+          <a class="view-btn" href="/screenshots/{{ ev.screenshot_path }}" target="_blank">View</a>
+          {% else %}
+          <span class="view-btn" aria-disabled="true">View</span>
+          {% endif %}
+        </article>
+        {% endfor %}
       </div>
+      {% if not recent_events %}<p class="empty">No events recorded for this clinic on {{ recent_events_day }}.</p>{% endif %}
     </div>
   </main>
 </div>

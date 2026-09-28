@@ -34,6 +34,7 @@ import logging
 import smtplib
 import ssl
 import time
+from datetime import datetime
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -193,6 +194,22 @@ def send_teams_message(
         return False
 
 
+def _format_time(event: Dict[str, Any]) -> str:
+    """
+    dd/mm/yy hh:mm AM/PM, from ts_epoch when available - readable at a
+    glance in an email subject line or a phone notification, unlike the
+    raw ISO 8601 timestamp (e.g. 2026-09-28T22:47:07+05:30) stored on the
+    event for everything else that reads it.
+    """
+    ts_epoch = event.get("ts_epoch")
+    if ts_epoch is not None:
+        try:
+            return datetime.fromtimestamp(ts_epoch).strftime("%d/%m/%y %I:%M %p")
+        except (OSError, OverflowError, ValueError):
+            pass
+    return event.get("timestamp", "")
+
+
 def notify_high_severity(event: Dict[str, Any]) -> None:
     """Call right after a High-severity event is inserted."""
     if event.get("severity") != "High":
@@ -207,7 +224,7 @@ def notify_high_severity(event: Dict[str, Any]) -> None:
         f"Clinic: {clinic}\n"
         f"Camera: {event.get('camera_name', '')}\n"
         f"State / Cluster: {event.get('state') or '-'} / {event.get('cluster') or '-'}\n"
-        f"Time: {event.get('timestamp', '')}\n\n"
+        f"Time: {_format_time(event)}\n\n"
         f"{description}\n"
         f"Reason: {event.get('reason', '')}\n"
     )

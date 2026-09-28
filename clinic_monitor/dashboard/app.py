@@ -912,9 +912,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         if user:
             auth.enforce_scope(database, user, state=state_name)
         day = request.args.get("day") or _today()
-        concern_window = request.args.get("window", "30D")
+        concern_window = request.args.get("window", "Today")
         if concern_window not in scoring.WINDOWS:
-            concern_window = "30D"
+            concern_window = "Today"
         return _cached_page(
             f"state:{state_name}:{day}:{concern_window}",
             lambda: _group_page(

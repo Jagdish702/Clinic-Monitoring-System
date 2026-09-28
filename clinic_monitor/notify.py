@@ -29,6 +29,7 @@ its own independent switch, not tied to email being configured at all.
 
 from __future__ import annotations
 
+import base64
 import logging
 import smtplib
 import ssl
@@ -125,7 +126,9 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
         return False
 
 
-def send_teams_message(subject: str, body: str) -> bool:
+def send_teams_message(
+    subject: str, body: str, image_path: Optional[Path] = None
+) -> bool:
     """
     Post one Adaptive Card to the Teams channel behind CM_TEAMS_WEBHOOK_URL.
 
@@ -136,6 +139,13 @@ def send_teams_message(subject: str, body: str) -> bool:
     "Property 'type' must be 'AdaptiveCard'" (confirmed against a real
     flow's failed-run diagnostics, 2026-09-28). This is not a generic
     Incoming Webhook - the request body must be exactly this shape.
+
+    ``image_path``, when given, is embedded directly in the card as a
+    base64 data URI rather than linked by URL - the dashboard that would
+    otherwise serve it binds to 127.0.0.1 only (the SSH tunnel is the
+    whole security model, see DEPLOY_GCP.md), so Teams' own servers could
+    never fetch a URL to it. A real screenshot here runs 17-21 KB, small
+    enough that embedding it costs nothing worth worrying about.
 
     Never raises - see send_email()'s docstring for why.
     """
@@ -148,6 +158,17 @@ def send_teams_message(subject: str, body: str) -> bool:
     card_body = [
         {"type": "TextBlock", "text": subject, "weight": "Bolder", "size": "Medium", "wrap": True},
     ] + [{"type": "TextBlock", "text": ln, "wrap": True} for ln in lines]
+    if image_path is not None:
+        try:
+            image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            card_body.append({
+                "type": "Image",
+                "url": f"data:image/jpeg;base64,{image_b64}",
+                "size": "Large",
+                "altText": "evidence screenshot",
+            })
+        except OSError as exc:
+            log.warning("could not attach screenshot %s to Teams card: %s", image_path, exc)
     payload = {
         "type": "message",
         "attachments": [
@@ -193,7 +214,7 @@ def notify_high_severity(event: Dict[str, Any]) -> None:
     screenshot = event.get("screenshot_path")
     image_path = Path(config.SCREENSHOT_DIR) / screenshot if screenshot else None
     sent_email = send_email(subject, body, image_path)
-    sent_teams = send_teams_message(subject, body)
+    sent_teams = send_teams_message(subject, body, image_path)
     if sent_email or sent_teams:
         _last_sent[key] = time.time()
 

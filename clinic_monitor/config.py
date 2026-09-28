@@ -315,6 +315,17 @@ EMAIL_COOLDOWN_MINUTES = int(os.getenv("CM_EMAIL_COOLDOWN_MINUTES", "60"))
 EMAIL_QUOTA_BACKOFF_MINUTES = int(os.getenv("CM_EMAIL_QUOTA_BACKOFF_MINUTES", "60"))
 
 # --------------------------------------------------------------------------- #
+# Teams escalation - High severity only, posted to one channel via an
+# incoming webhook URL (Teams' Workflows app: "Post to a channel when a
+# webhook request is received"). Off by default: CM_TEAMS_ENABLED unset
+# behaves exactly as before this existed. Shares EMAIL_COOLDOWN_MINUTES
+# rather than having its own - one High-severity event should not earn a
+# different repeat cadence in Teams than it does by email.
+# --------------------------------------------------------------------------- #
+TEAMS_ENABLED = _env_bool("CM_TEAMS_ENABLED", False)
+TEAMS_WEBHOOK_URL = os.getenv("CM_TEAMS_WEBHOOK_URL", "")
+
+# --------------------------------------------------------------------------- #
 # Stage 6 - dashboard
 # --------------------------------------------------------------------------- #
 DASHBOARD_HOST = os.getenv("CM_DASHBOARD_HOST", "127.0.0.1")

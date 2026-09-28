@@ -1,11 +1,12 @@
 """
-Stage 8 - email escalation.
+Stage 8 - email and Teams escalation.
 
 One notification list, three triggers, each on its own cooldown so a stuck
 camera or a long outage cannot spam the inbox:
 
 - High severity event    -> immediately, from EventLogger.log_event(),
-  a threshold               per (clinic, trigger)
+  a threshold               per (clinic, trigger) - also posted to Teams,
+                             see below
 - Clinic offline past    -> from Database.record_clinic_status(), once the
   a threshold               current offline streak crosses EMAIL_OFFLINE_MINUTES,
                              per (cluster, trigger) - one digest listing every
@@ -20,6 +21,10 @@ Every send goes through send_email(), which is a no-op (and never raises)
 when CM_EMAIL_ENABLED is unset - so a deployment that never configures this
 behaves exactly as it did before this module existed, matching the
 collector's own opt-in pattern (storage/collector_client.py).
+
+High-severity events are also posted to a Teams channel via
+send_teams_message(), a no-op the same way when CM_TEAMS_ENABLED is unset -
+its own independent switch, not tied to email being configured at all.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+
+import requests
 
 import config
 
@@ -118,6 +125,30 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
         return False
 
 
+def send_teams_message(subject: str, body: str) -> bool:
+    """
+    Post one message to the Teams channel behind CM_TEAMS_WEBHOOK_URL (a
+    Workflows "Post to a channel when a webhook request is received" URL,
+    or a legacy Incoming Webhook connector - both accept this same plain
+    {"text": ...} payload). Never raises - see send_email()'s docstring
+    for why.
+    """
+    if not config.TEAMS_ENABLED:
+        return False
+    if not config.TEAMS_WEBHOOK_URL:
+        log.warning("Teams alerts enabled but CM_TEAMS_WEBHOOK_URL is not set - skipping")
+        return False
+    text = f"**{subject}**\n\n{body}"
+    try:
+        resp = requests.post(config.TEAMS_WEBHOOK_URL, json={"text": text}, timeout=15)
+        resp.raise_for_status()
+        log.info("Teams message sent: %s", subject)
+        return True
+    except Exception as exc:                       # never let Teams break the caller
+        log.error("Teams send failed (%s): %s", subject, exc)
+        return False
+
+
 def notify_high_severity(event: Dict[str, Any]) -> None:
     """Call right after a High-severity event is inserted."""
     if event.get("severity") != "High":
@@ -138,7 +169,9 @@ def notify_high_severity(event: Dict[str, Any]) -> None:
     )
     screenshot = event.get("screenshot_path")
     image_path = Path(config.SCREENSHOT_DIR) / screenshot if screenshot else None
-    if send_email(subject, body, image_path):
+    sent_email = send_email(subject, body, image_path)
+    sent_teams = send_teams_message(subject, body)
+    if sent_email or sent_teams:
         _last_sent[key] = time.time()
 
 

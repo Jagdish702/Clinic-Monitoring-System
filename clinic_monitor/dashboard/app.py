@@ -665,9 +665,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         if user:
             auth.enforce_scope(database, user, clinic_name=clinic_name)
         day = request.args.get("day") or _today()
-        concern_window = request.args.get("window", "30D")
+        concern_window = request.args.get("window", "Today")
         if concern_window not in scoring.WINDOWS:
-            concern_window = "30D"
+            concern_window = "Today"
         return _cached_page(
             f"clinic:{clinic_name}:{day}:{concern_window}",
             lambda: _build_clinic_page(clinic_name, day, concern_window)
@@ -928,9 +928,9 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         if user:
             auth.enforce_scope(database, user, cluster=cluster_name)
         day = request.args.get("day") or _today()
-        concern_window = request.args.get("window", "30D")
+        concern_window = request.args.get("window", "Today")
         if concern_window not in scoring.WINDOWS:
-            concern_window = "30D"
+            concern_window = "Today"
         return _cached_page(
             f"cluster:{cluster_name}:{day}:{concern_window}",
             lambda: _group_page(

@@ -15,8 +15,6 @@
     --med-bg:#fff3d7;  --med-fg:#d29300;
     --low-bg:#e8fff1;  --low-fg:#00b82e;
     --shadow-card: 0 2px 10px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
-    --shadow-feed: 0 4px 6px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.16);
-    --shadow-btn: 0 2px 2px rgba(0,65,114,.08);
     --font-ui: 'Geist', -apple-system, 'Segoe UI', Roboto, sans-serif;
     --font-body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
   }
@@ -137,72 +135,6 @@
   .drill-link{font:500 11px var(--font-ui);color:var(--brand);text-decoration:underline;
     text-decoration-color:transparent;margin-right:auto;margin-left:10px}
   .drill-link:hover{text-decoration-color:var(--brand)}
-
-  /* recent events - same card design as the dashboard's Live Feed */
-  .chip{
-    display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;
-    border-radius:8px;font:500 12px var(--font-body);letter-spacing:.3px;white-space:nowrap;
-  }
-  .chip.high{background:var(--high-bg);color:var(--high-fg)}
-  .chip.med{background:var(--med-bg);color:var(--med-fg)}
-  .chip.low{background:var(--low-bg);color:var(--low-fg)}
-
-  .feed-section{display:flex;flex-direction:column;gap:16px}
-  .feed-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
-  .feed-title{font:600 15px var(--font-ui);margin:0}
-  .pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-  .pill{padding:4px 10px;border-radius:100px;font:400 12px var(--font-ui);color:var(--muted);border:1px solid transparent}
-  .pill.all.active{
-    background:linear-gradient(180deg, #10B981 0%, #00664C 100%);
-    border-color:transparent;color:#fff;font-weight:500;
-  }
-  .pill.high.active{background:var(--white);border-color:var(--high-fg);color:var(--high-fg);font-weight:500}
-  .pill.med.active{background:var(--white);border-color:var(--med-fg);color:var(--med-fg);font-weight:500}
-  .pill.low.active{background:var(--white);border-color:var(--low-fg);color:var(--low-fg);font-weight:500}
-
-  .cards{display:flex;flex-direction:column;gap:12px}
-  .feed-card{
-    display:flex;align-items:center;gap:8px;background:var(--white);border-radius:24px;
-    box-shadow:var(--shadow-feed);padding:8px;
-  }
-  .feed-card[hidden]{display:none}
-  .feed-card .thumb{
-    width:180px;height:100%;min-height:120px;align-self:stretch;border-radius:16px;
-    border:1px solid var(--line);object-fit:cover;background:var(--bg);flex:0 0 auto;
-  }
-  .feed-card .thumb.empty{
-    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;
-  }
-  .feed-card .content{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;padding:12px}
-  .feed-card .meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .feed-card .dotsep{color:var(--muted);font-size:12px}
-  .feed-card .clinic{font:700 18px var(--font-body);color:var(--text)}
-  .feed-card a.clinic:hover{text-decoration:underline}
-  .feed-card .camera{font:500 12px var(--font-body);color:var(--muted)}
-  .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
-  .feed-card .reason{font:500 12px var(--font-body);margin:0}
-  .feed-card .reason.high{color:var(--high-fg)}
-  .feed-card .reason.med{color:var(--med-fg)}
-  .feed-card .reason.low{color:var(--muted)}
-  .feed-card .subtle{font:500 12px var(--font-body);color:var(--muted);margin:0}
-  .feed-card .view-btn{
-    flex:0 0 auto;height:48px;padding:0 16px;border-radius:16px;box-shadow:var(--shadow-btn);
-    display:flex;align-items:center;justify-content:center;font:500 15px var(--font-body);color:var(--brand);
-    background:var(--white);border:1px solid var(--line);cursor:pointer;
-  }
-  .view-btn[aria-disabled="true"]{opacity:.4;cursor:default}
-
-  .feed-empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:13px}
-  .feed-footer{display:flex;gap:8px;justify-content:center;padding-top:8px;font-size:12px}
-  .feed-footer .count{color:var(--muted)}
-  .feed-footer .more{color:var(--brand);font-weight:600;cursor:pointer;border:0;background:none;font:inherit}
-  .feed-footer .more:disabled{display:none}
-
-  @media (max-width: 900px){
-    .feed-card{flex-direction:column;align-items:stretch}
-    .feed-card .thumb{width:100%;height:192px}
-    .feed-card .view-btn{width:100%}
-  }
 </style>
 </head>
 <body>
@@ -260,25 +192,6 @@
   </aside>
 
   <main class="main">
-    <div class="feed-section">
-      <div class="feed-header">
-        <p class="feed-title">Recent events</p>
-        <div class="pills">
-          <a class="pill all active" href="#" data-severity="all">All</a>
-          {% for s in ['High', 'Medium', 'Low'] %}
-            {% set sc = 'high' if s == 'High' else ('med' if s == 'Medium' else 'low') %}
-            <a class="pill {{ sc }}" href="#" data-severity="{{ s }}">{{ s }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      <div id="scores-cards" class="cards"></div>
-      <div id="scores-feed-empty" class="feed-empty" hidden>No events match these filters yet.</div>
-      <div class="feed-footer">
-        <span class="count" id="scores-feed-count"></span>
-        <button class="more" id="scores-load-more">Load more</button>
-      </div>
-    </div>
-
     <div>
       <p class="page-title">Clinic Scores</p>
       <p class="page-sub">Timeliness, incidents and camera availability, averaged into one score per clinic, cluster and state. High/Medium % and ETTR are supplementary and don't feed the overall score.</p>
@@ -389,99 +302,5 @@
     </div>
   </main>
 </div>
-
-<script>
-/* ---------------- Recent events - same card design/behavior as the dashboard's Live Feed ---------------- */
-const SCORES_STATE = {{ state | tojson }};
-const SCORES_CLUSTER = {{ cluster | tojson }};
-const SCORES_REFRESH_MS = {{ refresh }} * 1000;
-let scoresSeverity = "all";
-let scoresShownLimit = 6;
-
-function esc(s){
-  return String(s === null || s === undefined ? "" : s)
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-
-function when(ev){
-  const d = new Date(ev.ts_epoch * 1000);
-  return d.toLocaleString(undefined, {
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
-function sevClass(sev){
-  const s = (sev || "Low").toLowerCase();
-  if (s === "high") return "high";
-  if (s === "medium") return "med";
-  return "low";
-}
-
-function card(ev){
-  const cls = sevClass(ev.severity);
-  const thumb = ev.screenshot_path
-    ? `<img class="thumb" loading="lazy" src="/screenshots/${encodeURI(ev.screenshot_path)}" alt="evidence">`
-    : `<div class="thumb empty">No<br>screenshot</div>`;
-
-  const metaBits = [];
-  if (ev.confidence !== null && ev.confidence !== undefined) metaBits.push(`Conf: ${Math.round(ev.confidence*100)}%`);
-  if (ev.clinic_status) metaBits.push(`Status: ${esc(ev.clinic_status)}`);
-  if (ev.person_count) metaBits.push(`People: ${ev.person_count}`);
-  metaBits.push(when(ev));
-
-  return `<article class="feed-card">
-    ${thumb}
-    <div class="content">
-      <div class="meta-row">
-        <span class="chip ${cls}">${esc(ev.severity)}</span>
-        <span class="dotsep">&bull;</span>
-        <a class="clinic" href="/clinic/${encodeURIComponent(ev.clinic_name)}">${esc(ev.clinic_name)}</a>
-        <span class="dotsep">&bull;</span>
-        <span class="camera">${esc(ev.camera_name)}</span>
-      </div>
-      <p class="desc">${esc(ev.description)}</p>
-      ${ev.reason ? `<p class="reason ${cls}">Why: ${esc(ev.reason)}</p>` : ""}
-      <p class="subtle">${metaBits.map(esc).join(" &middot; ")}</p>
-    </div>
-    ${ev.screenshot_path
-      ? `<a class="view-btn" href="/screenshots/${encodeURI(ev.screenshot_path)}" target="_blank">View</a>`
-      : `<span class="view-btn" aria-disabled="true">View</span>`}
-  </article>`;
-}
-
-async function refreshScoresFeed(){
-  try{
-    const qs = new URLSearchParams({
-      severity: scoresSeverity, state: SCORES_STATE, cluster: SCORES_CLUSTER,
-      limit: scoresShownLimit,
-    });
-    const res = await fetch("/api/events?" + qs.toString(), {cache:"no-store"});
-    const data = await res.json();
-    document.getElementById("scores-cards").innerHTML = data.events.map(card).join("");
-    document.getElementById("scores-feed-empty").hidden = data.events.length > 0;
-    document.getElementById("scores-feed-count").textContent = `Showing ${data.events.length} of ${data.total}`;
-    document.getElementById("scores-load-more").disabled = data.events.length >= data.total;
-  }catch(err){
-    document.getElementById("scores-feed-count").textContent = "refresh failed: " + err;
-  }
-}
-
-document.getElementById("scores-load-more").onclick = () => { scoresShownLimit += 6; refreshScoresFeed(); };
-
-document.querySelectorAll(".pills .pill").forEach(pill => {
-  pill.addEventListener("click", (e) => {
-    e.preventDefault();
-    scoresSeverity = pill.dataset.severity;
-    scoresShownLimit = 6;
-    document.querySelectorAll(".pills .pill").forEach(p => p.classList.remove("active"));
-    pill.classList.add("active");
-    refreshScoresFeed();
-  });
-});
-
-refreshScoresFeed();
-setInterval(refreshScoresFeed, SCORES_REFRESH_MS);
-</script>
 </body>
 </html>

@@ -40,7 +40,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config  # noqa: E402
-from analysis.camera_health import FROZEN_DIFF, HealthStatus  # noqa: E402
+from analysis.camera_health import (  # noqa: E402
+    BLUR_MIN_BRIGHTNESS,
+    DARK_BRIGHTNESS,
+    FROZEN_DIFF,
+    HealthStatus,
+)
 from analysis.camera_role import indoor_cameras, infer_roles  # noqa: E402
 from storage.database import Database, ignored_clause  # noqa: E402
 
@@ -142,6 +147,55 @@ def _staffed(row: dict) -> bool:
     return row.get("clinic_status") == "Open"
 
 
+def _lit(row: dict) -> Optional[bool]:
+    """
+    Whether this frame reads as clearly lit (True) or clearly dark (False) -
+    ``None`` when brightness wasn't recorded, or it falls in the band between
+    the two calibrated thresholds. The band is left ambiguous on purpose
+    rather than rounded either way, so a frame that is merely dim never gets
+    counted as part of a lights-on/lights-off transition that didn't really
+    happen.
+    """
+    b = row.get("brightness")
+    if b is None:
+        return None
+    if b < DARK_BRIGHTNESS:
+        return False
+    if b >= BLUR_MIN_BRIGHTNESS:
+        return True
+    return None
+
+
+def _lights_transition_keys(rows: Sequence[dict]) -> set:
+    """
+    ``(camera_name, ts_epoch)`` of every frame that is a dark<->lit switch
+    from the immediately preceding frame on that same camera - fallback
+    evidence of opening/closing for the (rare) check where nobody was ever
+    caught on camera, e.g. staff arriving before dawn and switching the room
+    lights on, or switching them off on the way out at night.
+
+    Only an actual measured transition counts, never a frame's brightness on
+    its own: a room lit by daylight through a window is never dark in the
+    first place, so it can never trigger this - it only fires for a camera
+    that demonstrably changed state.
+    """
+    by_camera: Dict[str, List[dict]] = defaultdict(list)
+    for row in rows:
+        by_camera[row["camera_name"]].append(row)
+
+    keys: set = set()
+    for cam_rows in by_camera.values():
+        ordered = sorted(cam_rows, key=lambda r: r["ts_epoch"])
+        prev_lit: Optional[bool] = None
+        for row in ordered:
+            lit_now = _lit(row)
+            if lit_now is not None:
+                if prev_lit is not None and lit_now != prev_lit:
+                    keys.add((row["camera_name"], row["ts_epoch"]))
+                prev_lit = lit_now
+    return keys
+
+
 def effective_status(row: dict) -> Optional[str]:
     """
     Re-derive the health verdict from the stored measurements.
@@ -236,7 +290,15 @@ def operating_hours(
     scope = [r for r in usable if r["camera_name"] in indoor] if indoor else []
     used_indoor = bool(scope)
     watched = scope or usable
-    active = [r for r in watched if _staffed(r)]
+    # Fallback evidence for a check where no person was caught on camera: a
+    # dark<->lit switch on the indoor camera (lights on/off). Indoor only -
+    # an outdoor light is as likely to be on a dusk-to-dawn timer as switched
+    # by staff, so it says nothing reliable about the clinic being worked.
+    lit_transitions = _lights_transition_keys(scope) if used_indoor else set()
+    active = [
+        r for r in watched
+        if _staffed(r) or (r["camera_name"], r["ts_epoch"]) in lit_transitions
+    ]
     # Coverage is measured on the same cameras the times come from. Counting a
     # working outdoor camera as coverage of an indoor one would paper over
     # exactly the holes this is meant to find.

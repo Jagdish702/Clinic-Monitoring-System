@@ -127,20 +127,43 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
 
 def send_teams_message(subject: str, body: str) -> bool:
     """
-    Post one message to the Teams channel behind CM_TEAMS_WEBHOOK_URL (a
-    Workflows "Post to a channel when a webhook request is received" URL,
-    or a legacy Incoming Webhook connector - both accept this same plain
-    {"text": ...} payload). Never raises - see send_email()'s docstring
-    for why.
+    Post one Adaptive Card to the Teams channel behind CM_TEAMS_WEBHOOK_URL.
+
+    The flow behind this webhook ("When a Teams webhook request is
+    received" + "Post card in a chat or channel", Power Automate's own
+    template) only accepts the standard Teams message-with-adaptive-card
+    envelope - a plain {"text": ...} body fails its own schema check with
+    "Property 'type' must be 'AdaptiveCard'" (confirmed against a real
+    flow's failed-run diagnostics, 2026-09-28). This is not a generic
+    Incoming Webhook - the request body must be exactly this shape.
+
+    Never raises - see send_email()'s docstring for why.
     """
     if not config.TEAMS_ENABLED:
         return False
     if not config.TEAMS_WEBHOOK_URL:
         log.warning("Teams alerts enabled but CM_TEAMS_WEBHOOK_URL is not set - skipping")
         return False
-    text = f"**{subject}**\n\n{body}"
+    lines = [ln for ln in body.splitlines() if ln.strip()]
+    card_body = [
+        {"type": "TextBlock", "text": subject, "weight": "Bolder", "size": "Medium", "wrap": True},
+    ] + [{"type": "TextBlock", "text": ln, "wrap": True} for ln in lines]
+    payload = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": card_body,
+                },
+            }
+        ],
+    }
     try:
-        resp = requests.post(config.TEAMS_WEBHOOK_URL, json={"text": text}, timeout=15)
+        resp = requests.post(config.TEAMS_WEBHOOK_URL, json=payload, timeout=15)
         resp.raise_for_status()
         log.info("Teams message sent: %s", subject)
         return True

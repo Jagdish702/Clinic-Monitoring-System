@@ -1,0 +1,96 @@
+/*
+  Calendar date picker - matches the CureBay design system's DatePicker
+  component (Figma node 299:1116). Shared across every page that has a
+  "day to show" picker (dashboard's three report overlays, and the
+  state/cluster/clinic pages' Recent events section) instead of copied
+  into each template, since the widget itself is large.
+
+  Relies on the color/font custom properties every page already defines
+  in its own :root (--white, --bg, --line, --text, --muted, --brand,
+  --font-ui, --font-body) - only the handful of colors unique to this
+  component (the selected-day highlight, the Cancel/Apply buttons) are
+  hardcoded here, taken straight from the Figma file.
+*/
+.cb-dp{position:relative;display:inline-block}
+
+.cb-dp-trigger{
+  display:inline-flex;align-items:center;gap:6px;background:var(--white);
+  color:var(--text);border:1px solid var(--line);border-radius:8px;
+  padding:6px 10px;font:13px var(--font-ui);cursor:pointer;
+}
+.cb-dp-trigger:hover{border-color:var(--brand)}
+.cb-dp-trigger img{width:12px;height:12px;opacity:.7}
+
+.cb-dp-panel{
+  /* position:fixed (not absolute), with top/left/right set from JS in
+     viewport coordinates - the dashboard's modal overlays clip an
+     absolutely-positioned descendant with overflow:hidden (needed for
+     their own rounded corners), which cut this panel off. Fixed
+     positioning escapes that ancestor instead of being clipped by it. */
+  position:fixed;z-index:70;width:328px;
+  background:var(--white);border-radius:36px;padding:24px;
+  box-shadow:0 2px 20px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.12);
+  display:flex;flex-direction:column;gap:12px;
+}
+.cb-dp-panel[hidden]{display:none}
+
+.cb-dp-header{
+  border-bottom:1px solid var(--line);padding-bottom:24px;
+  font:500 14px var(--font-body);letter-spacing:.45px;color:#000;
+}
+
+.cb-dp-nav{display:flex;align-items:center;justify-content:space-between}
+.cb-dp-nav-btn{
+  display:inline-flex;align-items:center;gap:8px;height:24px;padding:0;border:0;
+  background:none;cursor:pointer;box-shadow:0 2px 2px rgba(0,65,114,.08);
+  border-radius:12px;font:500 14px var(--font-body);letter-spacing:.23px;color:var(--brand);
+}
+.cb-dp-nav-btn img{width:16px;height:16px}
+
+.cb-dp-nav-menu{
+  position:absolute;z-index:61;margin-top:4px;max-height:220px;overflow-y:auto;
+  background:var(--white);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 4px 16px rgba(0,65,114,.12);padding:4px;min-width:110px;
+}
+.cb-dp-nav-menu[hidden]{display:none}
+.cb-dp-nav-menu button{
+  display:block;width:100%;text-align:left;padding:6px 10px;border:0;background:none;
+  cursor:pointer;border-radius:8px;font:13px var(--font-body);color:var(--text);
+}
+.cb-dp-nav-menu button:hover{background:var(--bg)}
+.cb-dp-nav-menu button.current{color:var(--brand);font-weight:600}
+
+.cb-dp-weekdays,.cb-dp-grid{display:grid;grid-template-columns:repeat(7,40px)}
+.cb-dp-weekdays{border-bottom:1px solid var(--line)}
+.cb-dp-weekdays span{
+  display:flex;align-items:center;justify-content:center;height:40px;
+  font:300 14px var(--font-body);letter-spacing:.45px;color:var(--muted);
+}
+.cb-dp-weekdays span.cb-dp-sat{font-weight:500;color:#004171}
+
+.cb-dp-grid{row-gap:4px}
+.cb-dp-day{
+  display:flex;align-items:center;justify-content:center;width:40px;height:40px;
+  font:300 14px var(--font-body);letter-spacing:.45px;color:#666;
+  border:1px solid transparent;border-radius:12px;background:none;cursor:pointer;
+}
+.cb-dp-day:hover:not(:disabled):not(.cb-dp-empty){border-color:var(--line)}
+.cb-dp-day:disabled{color:var(--line);cursor:default}
+.cb-dp-day.cb-dp-empty{visibility:hidden;cursor:default}
+.cb-dp-day.cb-dp-selected{
+  background:#e8f1f8;border-color:#0185de;color:#004171;font-weight:500;
+}
+
+.cb-dp-actions{display:flex;gap:12px}
+.cb-dp-actions button{
+  flex:1;height:48px;border-radius:16px;border:0;cursor:pointer;
+  font:500 16px var(--font-body);letter-spacing:.26px;
+  box-shadow:0 2px 2px rgba(0,65,114,.08);
+}
+.cb-dp-cancel{background:none;color:var(--high-fg)}
+.cb-dp-apply{background:#edf9ff;color:var(--brand);box-shadow:0 2px 2px rgba(0,65,114,.08), inset 0 0 2px rgba(0,65,114,.08)}
+.cb-dp-apply:disabled{opacity:.5;cursor:default}
+
+@media (max-width: 480px){
+  .cb-dp-panel{width:min(328px, calc(100vw - 32px))}
+}

@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/datepicker.css') }}">
 <style>
   :root{
     --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
@@ -510,11 +511,7 @@
     <div class="section">
       <div class="section-head">
         <h2>Recent events</h2>
-        <select onchange="setParam('day', this.value)">
-          {% for d in recent_events_days %}
-          <option value="{{ d }}" {% if d == recent_events_day %}selected{% endif %}>{{ d }}</option>
-          {% endfor %}
-        </select>
+        <div id="recent-events-day"></div>
       </div>
       <div class="feed-cards">
         {% for ev in recent_events %}
@@ -558,12 +555,18 @@
 <div class="lightbox" id="image-lightbox" hidden onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="">
 </div>
+<script src="{{ url_for('static', filename='js/datepicker.js') }}"></script>
 <script>
 function setParam(key, value){
   const url = new URL(window.location.href);
   url.searchParams.set(key, value);
   window.location.href = url.toString();
 }
+createDatePicker(document.getElementById("recent-events-day"), {
+  value: {{ recent_events_day | tojson }},
+  validDays: {{ recent_events_days | tojson }},
+  onApply: (iso) => setParam('day', iso),
+});
 function openLightbox(src, ev){
   if (ev) ev.stopPropagation();
   document.getElementById('lightbox-img').src = src;

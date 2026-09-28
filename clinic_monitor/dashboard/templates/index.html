@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/datepicker.css') }}">
 <style>
   :root{
     --white:#ffffff; --bg:#f9f9f9; --line:#e5e5e5; --text:#000000; --muted:#808080;
@@ -460,7 +461,7 @@
     <div class="sheet-head">
       <h2>Offline clinics</h2>
       <span class="spacer"></span>
-      <select id="offline-day" title="Day to show"></select>
+      <div id="offline-day"></div>
       <button class="btn" id="offline-close">Close</button>
     </div>
     <div class="sheet-body">
@@ -482,7 +483,7 @@
     <div class="sheet-head">
       <h2>Clinics opened / closed</h2>
       <span class="spacer"></span>
-      <select id="clinic-status-day" title="Day to show"></select>
+      <div id="clinic-status-day"></div>
       <button class="btn" id="clinic-status-close">Close</button>
     </div>
     <div class="sheet-body">
@@ -505,7 +506,7 @@
       <button class="btn" id="reports-back" hidden>&larr; All clinics</button>
       <h2 id="reports-title">All clinics</h2>
       <span class="spacer"></span>
-      <select id="report-day" title="Day to show"></select>
+      <div id="report-day"></div>
       <button class="btn" id="reports-refresh" title="Rebuild reports from today's patrol data">Update reports</button>
       <button class="btn" id="reports-close">Close</button>
     </div>
@@ -523,6 +524,7 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/datepicker.js') }}"></script>
 <script>
 const REFRESH_MS = {{ refresh }} * 1000;
 const params = new URLSearchParams(window.location.search);
@@ -646,7 +648,10 @@ setInterval(refresh, REFRESH_MS);
 /* ---------------- Offline clinics ---------------- */
 const offOverlay = document.getElementById("offline-overlay");
 const offBody    = document.getElementById("offline-body");
-const offDay     = document.getElementById("offline-day");
+const offDay     = createDatePicker(document.getElementById("offline-day"), {
+  value: new Date().toISOString().slice(0, 10),
+  onApply: (iso) => loadOffline(iso),
+});
 let offlineDay = "";
 
 function hhmm(iso){ return iso ? esc(iso.slice(11,16)) : "—"; }
@@ -665,8 +670,7 @@ async function loadOffline(day){
 
   const days = (d.days_with_data && d.days_with_data.length) ? d.days_with_data : [d.day];
   if (!days.includes(d.day)) days.unshift(d.day);
-  offDay.innerHTML = days.map(x =>
-    `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+  offDay.setDays(days, d.day);
 
   const offXlsxLink = document.getElementById("download-offline-xlsx");
   const offCsvLink  = document.getElementById("download-offline-csv");
@@ -775,7 +779,6 @@ document.getElementById("open-offline").onclick = (e) => {
   loadOffline(offlineDay);
 };
 document.getElementById("offline-close").onclick = () => offOverlay.classList.remove("open");
-offDay.onchange = () => loadOffline(offDay.value);
 offOverlay.onclick = (e) => { if (e.target === offOverlay) offOverlay.classList.remove("open"); };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") offOverlay.classList.remove("open");
@@ -786,7 +789,10 @@ setInterval(updateOfflineBadge, 60000);
 /* ---------------- Clinic status (opened/closed) ---------------- */
 const statusOverlay = document.getElementById("clinic-status-overlay");
 const statusBody     = document.getElementById("clinic-status-body");
-const statusDay      = document.getElementById("clinic-status-day");
+const statusDay      = createDatePicker(document.getElementById("clinic-status-day"), {
+  value: new Date().toISOString().slice(0, 10),
+  onApply: (iso) => loadClinicStatus(iso),
+});
 let clinicStatusDay = "";
 
 const EXPECTED_OPEN = "{{ expected_open }}";
@@ -842,8 +848,7 @@ async function loadClinicStatus(day){
 
   const days = (d.days_with_data && d.days_with_data.length) ? d.days_with_data : [d.day];
   if (!days.includes(d.day)) days.unshift(d.day);
-  statusDay.innerHTML = days.map(x =>
-    `<option value="${x}" ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+  statusDay.setDays(days, d.day);
 
   const csXlsxLink = document.getElementById("download-clinic-status-xlsx");
   const csCsvLink  = document.getElementById("download-clinic-status-csv");
@@ -869,7 +874,6 @@ document.getElementById("open-clinic-status").onclick = (e) => {
   loadClinicStatus(clinicStatusDay);
 };
 document.getElementById("clinic-status-close").onclick = () => statusOverlay.classList.remove("open");
-statusDay.onchange = () => loadClinicStatus(statusDay.value);
 statusOverlay.onclick = (e) => { if (e.target === statusOverlay) statusOverlay.classList.remove("open"); };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") statusOverlay.classList.remove("open");
@@ -881,7 +885,10 @@ const listEl    = document.getElementById("reports-list");
 const viewEl    = document.getElementById("report-view");
 const titleEl   = document.getElementById("reports-title");
 const backBtn   = document.getElementById("reports-back");
-const daySel    = document.getElementById("report-day");
+const daySel    = createDatePicker(document.getElementById("report-day"), {
+  value: new Date().toISOString().slice(0, 10),
+  onApply: (iso) => loadClinics(iso),
+});
 const updateBtn = document.getElementById("reports-refresh");
 let currentDay = "";
 
@@ -915,8 +922,7 @@ async function loadClinics(day){
   const days = data.days_with_data && data.days_with_data.length
     ? data.days_with_data : [data.day];
   if (!days.includes(data.day)) days.unshift(data.day);
-  daySel.innerHTML = days.map(d =>
-    `<option value="${d}" ${d === data.day ? "selected" : ""}>${d}</option>`).join("");
+  daySel.setDays(days, data.day);
   setCsvDay(data.day);
 
   if (!data.clinics.length){
@@ -1009,7 +1015,6 @@ document.getElementById("open-reports").onclick = (e) => {
 };
 document.getElementById("reports-close").onclick = () => overlay.classList.remove("open");
 backBtn.onclick = showList;
-daySel.onchange = () => loadClinics(daySel.value);
 overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove("open"); };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") overlay.classList.remove("open");

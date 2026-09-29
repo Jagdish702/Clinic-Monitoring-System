@@ -193,7 +193,12 @@
   .feed-card .dotsep{color:var(--muted);font-size:12px}
   .feed-card .clinic-name{font:700 18px var(--font-body);color:var(--text)}
   .feed-card a.clinic-name:hover{text-decoration:underline}
-  .feed-card .camera{font:500 12px var(--font-body);color:var(--muted)}
+  .feed-card .camera{
+    font:500 12px var(--font-body);
+    background:linear-gradient(180deg, #10B981 0%, #00664C 100%);
+    background-clip:text;-webkit-background-clip:text;
+    color:transparent;-webkit-text-fill-color:transparent;
+  }
   .feed-card .desc{font:500 16px var(--font-body);color:var(--text);margin:0}
   .feed-card .chip{
     display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;

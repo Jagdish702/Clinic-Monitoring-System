@@ -30,6 +30,7 @@ its own independent switch, not tied to email being configured at all.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import smtplib
 import ssl
@@ -41,6 +42,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+import cv2
+import numpy as np
 import requests
 
 import config
@@ -127,6 +130,50 @@ def send_email(subject: str, body: str, image_path: Optional[Path] = None) -> bo
         return False
 
 
+# Teams' "Post card in a chat or channel" action hard-rejects any card over
+# ~28 KB of JSON with a 413 RequestEntityTooLarge - and that rejection
+# happens *inside* the flow, invisibly to us: the webhook itself still
+# returns 202 Accepted, so there is no way to detect the failure from the
+# HTTP response. The only real fix is staying under the limit in the first
+# place. CARD_SIZE_BUDGET leaves headroom below the real ~28 KB ceiling for
+# the JSON structure itself (keys, braces, the schema boilerplate).
+CARD_SIZE_BUDGET = 24_000
+# A raw screenshot (17-21 KB) already becomes 23-28 KB once base64-encoded -
+# right at or over the whole card's own budget before a single word of text
+# is added. Shrunk to this size on read, never touching the original file
+# (still used at full quality for the email attachment and the dashboard).
+# Named distinctly from config.SCREENSHOT_JPEG_QUALITY - that one governs
+# the capture pipeline's own saved files, unrelated to this card-only copy.
+TEAMS_SCREENSHOT_MAX_DIMENSION = 480
+TEAMS_SCREENSHOT_JPEG_QUALITY = 55
+
+
+def _shrink_screenshot_for_card(image_path: Path) -> Optional[bytes]:
+    """
+    A small, low-quality re-encode of the screenshot, built only for
+    embedding in a Teams card - never written back to image_path. Returns
+    None (not raises) on any failure, so a corrupt or unreadable frame just
+    means the card goes out without an image rather than not going out at
+    all.
+    """
+    try:
+        data = np.frombuffer(image_path.read_bytes(), dtype=np.uint8)
+        frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        scale = TEAMS_SCREENSHOT_MAX_DIMENSION / max(h, w)
+        if scale < 1:
+            frame = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))))
+        ok, encoded = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), TEAMS_SCREENSHOT_JPEG_QUALITY]
+        )
+        return encoded.tobytes() if ok else None
+    except Exception as exc:
+        log.warning("could not shrink screenshot %s for Teams card: %s", image_path, exc)
+        return None
+
+
 def send_teams_message(
     subject: str, body: str, image_path: Optional[Path] = None
 ) -> bool:
@@ -145,8 +192,9 @@ def send_teams_message(
     base64 data URI rather than linked by URL - the dashboard that would
     otherwise serve it binds to 127.0.0.1 only (the SSH tunnel is the
     whole security model, see DEPLOY_GCP.md), so Teams' own servers could
-    never fetch a URL to it. A real screenshot here runs 17-21 KB, small
-    enough that embedding it costs nothing worth worrying about.
+    never fetch a URL to it. It is shrunk first (see
+    _shrink_screenshot_for_card) and dropped entirely if the card would
+    still be too big even shrunk - see CARD_SIZE_BUDGET.
 
     Never raises - see send_email()'s docstring for why.
     """
@@ -159,31 +207,42 @@ def send_teams_message(
     card_body = [
         {"type": "TextBlock", "text": subject, "weight": "Bolder", "size": "Medium", "wrap": True},
     ] + [{"type": "TextBlock", "text": ln, "wrap": True} for ln in lines]
+
+    def _card_payload(body_items):
+        return {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": body_items,
+                    },
+                }
+            ],
+        }
+
+    payload = _card_payload(card_body)
     if image_path is not None:
-        try:
-            image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-            card_body.append({
+        small = _shrink_screenshot_for_card(image_path)
+        if small is not None:
+            image_item = {
                 "type": "Image",
-                "url": f"data:image/jpeg;base64,{image_b64}",
+                "url": f"data:image/jpeg;base64,{base64.b64encode(small).decode('ascii')}",
                 "size": "Stretch",
                 "altText": "evidence screenshot",
-            })
-        except OSError as exc:
-            log.warning("could not attach screenshot %s to Teams card: %s", image_path, exc)
-    payload = {
-        "type": "message",
-        "attachments": [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.4",
-                    "body": card_body,
-                },
             }
-        ],
-    }
+            candidate = _card_payload(card_body + [image_item])
+            if len(json.dumps(candidate)) <= CARD_SIZE_BUDGET:
+                payload = candidate
+            else:
+                log.warning(
+                    "Teams card for %s still too large with the shrunk screenshot "
+                    "(%d bytes shrunk) - sending without the image",
+                    subject, len(small),
+                )
     try:
         resp = requests.post(config.TEAMS_WEBHOOK_URL, json=payload, timeout=15)
         resp.raise_for_status()

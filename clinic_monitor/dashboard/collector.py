@@ -33,6 +33,7 @@ from flask import Flask, jsonify, request
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
+import notify  # noqa: E402
 from storage.database import Database  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,14 @@ def create_app(db: "Database | None" = None) -> Flask:
         except Exception as exc:                      # pragma: no cover - defensive
             log.error("collector: failed to insert pushed event: %s", exc)
             return jsonify(error="insert failed"), 500
+        # The satellite VM's own EventLogger.log_event() already calls this
+        # for a locally-patrolled clinic; a pushed event from another
+        # cluster's VM landed only here, straight into insert_event(), and
+        # would otherwise never trigger an email or Teams alert at all.
+        # body already carries its origin's resolved state/cluster (see
+        # Database.insert_event()'s own "pushed" dict), so no extra lookup
+        # is needed here.
+        notify.notify_high_severity(body)
         return jsonify(id=row_id), 201
 
     @app.route("/collect/observations", methods=["POST"])

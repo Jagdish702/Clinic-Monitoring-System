@@ -86,6 +86,12 @@
   .tree-row.clinic{padding-left:24px;font-size:12px}
   .tree-row.clinic.active{color:var(--text);font-weight:500}
   .tree-icon{width:16px;height:16px;flex:0 0 auto;filter:drop-shadow(0 2px 2px rgba(0,65,114,.08))}
+  .tree-count{
+    font-weight:600;
+    background:linear-gradient(180deg, #10B981 0%, #00664C 100%);
+    background-clip:text;-webkit-background-clip:text;
+    color:transparent;-webkit-text-fill-color:transparent;
+  }
 
   .sidebar-footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);
     font-size:12px;color:var(--muted)}
@@ -330,7 +336,7 @@
                      src="{{ url_for('static', filename='icons/' ~ ('pin-active.svg' if state == st.value else 'pin.svg')) }}">
                 <span>{{ st.value }}</span>
               </span>
-              <span>{{ st.count }}</span>
+              <span class="tree-count" title="clusters in this state">{{ st.count }}</span>
             </a>
             <a class="tree-open" href="/state/{{ st.value | urlencode }}" title="Open the {{ st.value }} state page">&#8599;</a>
           </div>
@@ -340,7 +346,7 @@
                 <a class="tree-row cluster {% if cluster == cl.value %}active{% endif %}"
                    href="?severity={{ severity }}&clinic=all&state={{ state }}&cluster={{ cl.value }}">
                   <span>{{ cl.value }} Cluster</span>
-                  <span>{{ cl.count }}</span>
+                  <span class="tree-count" title="clinics in this cluster">{{ cl.count }}</span>
                 </a>
                 <a class="tree-open" href="/cluster/{{ cl.value | urlencode }}" title="Open the {{ cl.value }} cluster page">&#8599;</a>
               </div>

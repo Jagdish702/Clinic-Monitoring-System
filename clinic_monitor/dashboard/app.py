@@ -191,6 +191,24 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
             # own rule that a bare state-level view is outside their scope.
             own_clusters = auth.user_clusters(scope_user)
             clusters = [c for c in clusters if c["value"] in own_clusters]
+        # The sidebar shows how many clusters a state has, and how many
+        # clinics a cluster has - not the raw event count group_counts()
+        # itself returns, which says nothing at a glance ("80526" vs "9").
+        states = [
+            {"value": s["value"], "count": len(database.group_counts("cluster", state=s["value"]))}
+            for s in states
+        ]
+        clusters = [
+            {
+                "value": c["value"],
+                "count": len(database.group_counts(
+                    "clinic_name",
+                    state=None if state == "all" else state,
+                    cluster=c["value"],
+                )),
+            }
+            for c in clusters
+        ]
         clinics = database.group_counts(
             "clinic_name",
             state=None if state == "all" else state,
@@ -296,6 +314,27 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
                 "clusters": cluster_nodes,
             })
         tree.sort(key=lambda s: (s["average"] is None, s["average"] or 0))
+
+        # The sidebar shows how many clusters a state has, and how many
+        # clinics a cluster has - not the raw event count group_counts()
+        # itself returns, which says nothing at a glance ("80526" vs "9").
+        # Done after the tree above, which only ever reads .value from
+        # these, never .count.
+        states = [
+            {"value": s["value"], "count": len(database.group_counts("cluster", state=s["value"]))}
+            for s in states
+        ]
+        clusters = [
+            {
+                "value": c["value"],
+                "count": len(database.group_counts(
+                    "clinic_name",
+                    state=None if state == "all" else state,
+                    cluster=c["value"],
+                )),
+            }
+            for c in clusters
+        ]
 
         # Fast Moving: top 3 clinics with a High/Medium ticket opened in the
         # last 5 minutes - "what's happening right now". Slow Moving:

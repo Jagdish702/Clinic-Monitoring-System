@@ -1012,6 +1012,53 @@ class Database:
         ).fetchall()
         return [{"value": r["v"], "count": r["n"]} for r in rows if r["v"]]
 
+    def distinct_counts(
+        self,
+        group_by: str,
+        count_distinct: str,
+        state: Optional[str] = None,
+        cluster: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        {group_by value: distinct count_distinct count} in one query - e.g.
+        group_by="state", count_distinct="cluster" gives every state's own
+        cluster count for the sidebar tree; group_by="cluster",
+        count_distinct="clinic_name" (with state= set to scope it) gives
+        every cluster's own clinic count.
+
+        Deliberately not group_counts() called once per parent and reduced
+        to len() of the result - that GROUP BY COUNT(*)s every matching
+        event just to throw the counts away and keep the list length,
+        doing far more work than counting how many distinct children
+        exist actually needs. Found live on Puri (2026-09-30): the sidebar
+        alone was issuing a dozen-plus of those full aggregations per page
+        load, on top of everything else index() already computes, and
+        that was enough added load to make "/" hang outright under real
+        concurrent traffic.
+        """
+        for col in (group_by, count_distinct):
+            if col not in {"clinic_name", "camera_name", "state", "cluster"}:
+                raise ValueError(f"cannot use {col!r} here")
+        clauses: List[str] = []
+        params: List[Any] = []
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if cluster:
+            clauses.append("cluster = ?")
+            params.append(cluster)
+        hide, hide_params = ignored_clause()
+        if hide:
+            clauses.append(hide)
+            params.extend(hide_params)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT {group_by} AS g, COUNT(DISTINCT {count_distinct}) AS n "
+            f"FROM events {where}GROUP BY {group_by}",
+            params,
+        ).fetchall()
+        return {r["g"]: r["n"] for r in rows if r["g"]}
+
     def dashboard_summary(
         self, day: str, state: Optional[str] = None, cluster: Optional[str] = None
     ) -> Dict[str, Any]:

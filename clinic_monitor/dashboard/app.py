@@ -194,19 +194,22 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # The sidebar shows how many clusters a state has, and how many
         # clinics a cluster has - not the raw event count group_counts()
         # itself returns, which says nothing at a glance ("80526" vs "9").
+        # One query for every state's cluster-count, one for every
+        # cluster's clinic-count - not one group_counts() call per state
+        # and per cluster reduced to len(): that GROUP BY COUNT(*)s every
+        # matching event just to throw the counts away, and was heavy
+        # enough on its own to make "/" hang under real traffic (found
+        # live on Puri, 2026-09-30).
+        cluster_counts_by_state = database.distinct_counts("state", "cluster")
         states = [
-            {"value": s["value"], "count": len(database.group_counts("cluster", state=s["value"]))}
+            {"value": s["value"], "count": cluster_counts_by_state.get(s["value"], 0)}
             for s in states
         ]
+        clinic_counts_by_cluster = database.distinct_counts(
+            "cluster", "clinic_name", state=None if state == "all" else state
+        )
         clusters = [
-            {
-                "value": c["value"],
-                "count": len(database.group_counts(
-                    "clinic_name",
-                    state=None if state == "all" else state,
-                    cluster=c["value"],
-                )),
-            }
+            {"value": c["value"], "count": clinic_counts_by_cluster.get(c["value"], 0)}
             for c in clusters
         ]
         clinics = database.group_counts(
@@ -318,21 +321,21 @@ def create_app(db_path: Optional[Path] = None) -> Flask:
         # The sidebar shows how many clusters a state has, and how many
         # clinics a cluster has - not the raw event count group_counts()
         # itself returns, which says nothing at a glance ("80526" vs "9").
+        # One query for every state's cluster-count, one for every
+        # cluster's clinic-count - see distinct_counts()'s own docstring
+        # for why this replaced a group_counts() call per state/cluster.
         # Done after the tree above, which only ever reads .value from
         # these, never .count.
+        cluster_counts_by_state = database.distinct_counts("state", "cluster")
         states = [
-            {"value": s["value"], "count": len(database.group_counts("cluster", state=s["value"]))}
+            {"value": s["value"], "count": cluster_counts_by_state.get(s["value"], 0)}
             for s in states
         ]
+        clinic_counts_by_cluster = database.distinct_counts(
+            "cluster", "clinic_name", state=None if state == "all" else state
+        )
         clusters = [
-            {
-                "value": c["value"],
-                "count": len(database.group_counts(
-                    "clinic_name",
-                    state=None if state == "all" else state,
-                    cluster=c["value"],
-                )),
-            }
+            {"value": c["value"], "count": clinic_counts_by_cluster.get(c["value"], 0)}
             for c in clusters
         ]
 

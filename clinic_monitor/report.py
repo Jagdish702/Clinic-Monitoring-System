@@ -975,6 +975,16 @@ def daily_summary(
             op_status = "offline"
         elif not rows:
             op_status = "offline"
+        elif not any(_usable(r) for r in rows):
+            # The device answered and observations came in, but every one
+            # had a bad camera health (frozen, no_signal, too_dark,
+            # obstructed) - nothing could actually be watched all day, the
+            # same "not the clinic's fault" call as the two branches
+            # above, not a legitimate empty-clinic day. Without this, a
+            # camera frozen from dawn to dusk read as "closed" - cameras
+            # worked fine, nobody was there - when the cameras never
+            # worked at all.
+            op_status = "offline"
         else:
             op_status = "closed"
 
